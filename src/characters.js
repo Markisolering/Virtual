@@ -15,6 +15,65 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const WALK_CLIP_SPEED = 1.21;
 // Hur länge en person stannar kvar där man bett den vara innan den gör något eget (sekunder)
 const HOLD_TIME = 90;
+// Munformer (Oculus-visem) i de detaljerade modellerna
+const VISEMES = ['sil', 'PP', 'FF', 'TH', 'DD', 'kk', 'CH', 'SS', 'nn', 'RR', 'aa', 'E', 'I', 'O', 'U'];
+const VISEME_MORPH = Object.fromEntries(VISEMES.map((v, i) => [v, `AA_VI_${String(i).padStart(2, '0')}_${v === 'sil' ? 'Sil' : v === 'kk' ? 'KK' : v}`]));
+// Hur mycket käken öppnas för varje munform
+const VISEME_JAW = { aa: 0.32, E: 0.18, I: 0.1, O: 0.22, U: 0.12, RR: 0.1, CH: 0.06, SS: 0.04, DD: 0.08, nn: 0.06, kk: 0.1, TH: 0.06, FF: 0.02, PP: 0, sil: 0 };
+
+// Ungefärlig svensk uttalsmodell: bokstäver till munformer
+function textToVisemes(text) {
+  const t = text.toLowerCase();
+  const out = [];
+  for (let i = 0; i < t.length; i++) {
+    const two = t.slice(i, i + 2);
+    // sj-ljud: sj, tj, ch, stj, samt sk före mjuk vokal (skön, skina)
+    if (['sj', 'tj', 'ch', 'stj'].some((d) => t.startsWith(d, i)) || (two === 'sk' && 'eiyäö'.includes(t[i + 2]))) {
+      out.push(['CH', 0.1]);
+      i += two === 'st' ? 2 : 1;
+      continue;
+    }
+    if (two === 'th') {
+      out.push(['TH', 0.08]);
+      i++;
+      continue;
+    }
+    const c = t[i];
+    let v = null;
+    if ('aá'.includes(c)) v = 'aa';
+    else if ('eéä'.includes(c)) v = 'E';
+    else if ('iyj'.includes(c)) v = 'I';
+    else if ('oåö'.includes(c)) v = 'O';
+    else if ('uü'.includes(c)) v = 'U';
+    else if ('pbm'.includes(c)) v = 'PP';
+    else if ('fvw'.includes(c)) v = 'FF';
+    else if ('tdl'.includes(c)) v = 'DD';
+    else if (c === 'n') v = 'nn';
+    else if ('kgqch'.includes(c)) v = 'kk';
+    else if ('szxc'.includes(c)) v = 'SS';
+    else if (c === 'r') v = 'RR';
+    if (v) out.push([v, 'aEIOU'.includes(v) || v === 'aa' ? 0.09 : 0.065]);
+    else if ('.!?…'.includes(c)) out.push(['sil', 0.32]);
+    else if (',;:'.includes(c)) out.push(['sil', 0.18]);
+    else if (c === ' ') out.push(['sil', 0.03]);
+  }
+  return out;
+}
+
+// Ansiktsuttryck som blandningar av ARKit-former
+const EXPRESSIONS = {
+  neutral: {},
+  happy: { AK_44_MouthSmileLeft: 0.75, AK_45_MouthSmileRight: 0.75, AK_07_CheekSquintLeft: 0.4, AK_08_CheekSquintRight: 0.4, AK_19_EyeSquintLeft: 0.2, AK_20_EyeSquintRight: 0.2 },
+  laugh: { AK_44_MouthSmileLeft: 1, AK_45_MouthSmileRight: 1, AK_07_CheekSquintLeft: 0.7, AK_08_CheekSquintRight: 0.7, AK_19_EyeSquintLeft: 0.5, AK_20_EyeSquintRight: 0.5, AK_25_JawOpen: 0.25, AK_03_BrowInnerUp: 0.2 },
+  sad: { AK_30_MouthFrownLeft: 0.6, AK_31_MouthFrownRight: 0.6, AK_03_BrowInnerUp: 0.7, AK_36_MouthPressLeft: 0.2, AK_37_MouthPressRight: 0.2 },
+  angry: { AK_01_BrowDownLeft: 0.8, AK_02_BrowDownRight: 0.8, AK_50_NoseSneerLeft: 0.35, AK_51_NoseSneerRight: 0.35, AK_36_MouthPressLeft: 0.4, AK_37_MouthPressRight: 0.4, AK_30_MouthFrownLeft: 0.3, AK_31_MouthFrownRight: 0.3 },
+  surprised: { AK_21_EyeWideLeft: 0.7, AK_22_EyeWideRight: 0.7, AK_03_BrowInnerUp: 0.7, AK_04_BrowOuterUpLeft: 0.7, AK_05_BrowOuterUpRight: 0.7, AK_25_JawOpen: 0.2 },
+  thinking: { AK_01_BrowDownLeft: 0.35, AK_05_BrowOuterUpRight: 0.4, AK_36_MouthPressLeft: 0.35, AK_37_MouthPressRight: 0.35, AK_19_EyeSquintLeft: 0.25, AK_20_EyeSquintRight: 0.25, AK_38_MouthPucker: 0.15 },
+  tired: { AK_25_JawOpen: 0.75, AK_19_EyeSquintLeft: 0.6, AK_20_EyeSquintRight: 0.6, AK_03_BrowInnerUp: 0.4, AK_38_MouthPucker: 0.1 },
+};
+// Gester som också syns i ansiktet
+const GESTURE_FACE = { laugh: 'laugh', cheer: 'happy', clap: 'happy', dance: 'happy', wave: 'happy', yawn: 'tired', think: 'thinking', shrug: 'thinking', sitShrug: 'thinking', photo: 'happy' };
+
 // Klipp som spelas en gång (gester); övriga loopar
 const ONCE_CLIPS = new Set(['wave', 'clap', 'cheer', 'laugh', 'shrug', 'sitShrug', 'stretch', 'yawn', 'photo', 'think']);
 const BASE = import.meta.env.BASE_URL;
@@ -29,6 +88,8 @@ class AvatarLibrary {
     this.list = null;
     this.inUse = new Map();
     this.filter = 'all'; // 'all' | 'f' | 'm': vilka som får komma in i rummet
+    this.dir = 'avatars'; // 'avatars-hq' i närbildsläget: detaljerade modeller med ansiktsuttryck
+    this.initialCount = 3;
   }
 
   allowed(entry) {
@@ -36,15 +97,15 @@ class AvatarLibrary {
   }
 
   async init(onProgress) {
-    const res = await fetch(`${BASE}avatars/index.json`);
+    const res = await fetch(`${BASE}${this.dir}/index.json`);
     this.list = await res.json();
     let done = 0;
-    const tick = () => onProgress?.(++done / 5);
+    const tick = () => onProgress?.(++done / (2 + this.initialCount));
     await Promise.all(['f', 'm'].map((g) => this.animations(g).then(tick)));
     // Förladda några personer så att rummet inte är tomt när spelet startar
     const pool = this.list.filter((a) => this.allowed(a));
     this.initial = [];
-    while (this.initial.length < 3 && this.initial.length < pool.length) {
+    while (this.initial.length < this.initialCount && this.initial.length < pool.length) {
       const e = pick(pool);
       if (!this.initial.includes(e)) this.initial.push(e);
     }
@@ -60,7 +121,7 @@ class AvatarLibrary {
     if (!this.models.has(id)) {
       this.models.set(
         id,
-        this.load(`${BASE}avatars/${id}.glb`).then((gltf) => {
+        this.load(`${BASE}${this.dir}/${id}.glb`).then((gltf) => {
           gltf.scene.traverse((o) => {
             if (o.isMesh) {
               o.castShadow = true;
@@ -198,6 +259,12 @@ export class Character {
     this.following = false;
     this.followUntil = 0;
     this.faceTarget = null;
+    // Ansikte (bara i närbildsmodellerna)
+    this.speech = null; // { seq, i, t } munformer för det som sägs
+    this.expression = 'neutral';
+    this.expressionUntil = 0;
+    this.morphState = {};
+    this.saccade = { x: 0, y: 0, timer: 0 };
     this.setupModel(scene, anim);
   }
 
@@ -214,11 +281,21 @@ export class Character {
       head: nodes.Bip01_Head,
       jaw: nodes.Bip01_MJaw,
       lids: [nodes.Bip01_LEyeBlinkTop, nodes.Bip01_REyeBlinkTop].filter(Boolean),
+      eyes: [nodes.Bip01_LEye, nodes.Bip01_REye].filter(Boolean),
     };
+    // Varåt huvud och ögon pekar i sina egna koordinater (modellen tittar längs +z i grundposen)
+    model.updateMatrixWorld(true);
+    const forwardIn = (bone) => (bone ? new THREE.Vector3(0, 0, 1).applyQuaternion(bone.getWorldQuaternion(new THREE.Quaternion()).invert()) : null);
+    this.headForward = forwardIn(this.bones.head);
+    this.eyeForward = this.bones.eyes.map(forwardIn);
+    // Delar av modellen som har ansiktsuttryck (morph targets)
+    this.faceMeshes = [];
+    model.traverse((o) => o.morphTargetDictionary && Object.keys(o.morphTargetDictionary).length && this.faceMeshes.push(o));
     // Ansiktsbenen saknar animationsspår, så vi återställer dem själva varje bildruta
     this.rest = {
       jaw: this.bones.jaw?.quaternion.clone(),
       lids: this.bones.lids.map((l) => l.position.clone()),
+      eyes: this.bones.eyes.map((e) => e.quaternion.clone()),
     };
 
     // Skala rotens höjd i animationerna efter den här avatarens benlängd
@@ -553,6 +630,91 @@ export class Character {
     this.play(clip, 0.35);
     this.gesture = { clip, until: def.loop ? this.age + def.loop : Infinity };
     this.commandActive = true;
+    if (GESTURE_FACE[clip]) this.setExpression(GESTURE_FACE[clip], def.loop || action.getClip().duration);
+  }
+
+  // ---------- Ansikte ----------
+  get hasFace() {
+    return this.faceMeshes.length > 0;
+  }
+
+  setExpression(name, seconds = 4) {
+    if (!EXPRESSIONS[name]) return;
+    this.expression = name;
+    this.expressionUntil = this.age + seconds;
+  }
+
+  // Starta läppsynk för en replik; returnerar hur länge den tar att säga
+  speakText(text) {
+    const seq = textToVisemes(text);
+    const duration = seq.reduce((sum, [, d]) => sum + d, 0);
+    this.speech = { seq, i: 0, t: 0 };
+    this.speaking = Math.min(14, duration + 0.2);
+    return duration;
+  }
+
+  setMorph(name, value) {
+    for (const m of this.faceMeshes) {
+      const i = m.morphTargetDictionary[name];
+      if (i !== undefined) m.morphTargetInfluences[i] = value;
+    }
+  }
+
+  updateFace(dt) {
+    const want = {};
+    const add = (k, v) => (want[k] = Math.min(1, (want[k] || 0) + v));
+    // Grunduttryck: ett litet leende när personen är på gott humör
+    const expr = this.age < this.expressionUntil ? this.expression : 'neutral';
+    if (expr === 'neutral') {
+      const smile = Math.max(0, this.persona.mood - 0.45) * 0.35;
+      add('AK_44_MouthSmileLeft', smile);
+      add('AK_45_MouthSmileRight', smile);
+    }
+    for (const [k, v] of Object.entries(EXPRESSIONS[expr])) add(k, v);
+
+    // Läppsynk: stega igenom munformerna i takt med repliken
+    if (this.speaking > 0) {
+      let vis = null;
+      if (this.speech && this.speech.i < this.speech.seq.length) {
+        this.speech.t += dt;
+        while (this.speech.i < this.speech.seq.length && this.speech.t > this.speech.seq[this.speech.i][1]) {
+          this.speech.t -= this.speech.seq[this.speech.i][1];
+          this.speech.i++;
+        }
+        vis = this.speech.seq[this.speech.i]?.[0] || 'sil';
+      } else {
+        // Medan texten fortfarande strömmar in: rörlig mun utan exakt uttal
+        vis = ['aa', 'E', 'O', 'DD', 'nn', 'PP', 'I'][Math.floor(performance.now() / 110 + this.id) % 7];
+      }
+      if (vis && vis !== 'sil') {
+        add(VISEME_MORPH[vis], 0.85);
+        add('AK_25_JawOpen', VISEME_JAW[vis] || 0);
+      }
+    } else {
+      this.speech = null;
+    }
+
+    // Blinkningar
+    if (this.blinkTimer < 0.14) {
+      add('AK_09_EyeBlinkLeft', 1);
+      add('AK_10_EyeBlinkRight', 1);
+    }
+
+    // Mjuka övergångar; munnen rör sig snabbare än resten av ansiktet
+    const keys = new Set([...Object.keys(want), ...Object.keys(this.morphState)]);
+    for (const k of keys) {
+      const target = want[k] || 0;
+      const rate = k.startsWith('AA_VI') || k === 'AK_25_JawOpen' ? 28 : k.includes('Blink') ? 40 : 6;
+      const cur = this.morphState[k] || 0;
+      const next = cur + (target - cur) * Math.min(1, dt * rate);
+      if (next < 0.001 && target === 0) {
+        delete this.morphState[k];
+        this.setMorph(k, 0);
+      } else {
+        this.morphState[k] = next;
+        this.setMorph(k, next);
+      }
+    }
   }
 
   endGesture() {
@@ -747,25 +909,31 @@ export class Character {
     const b = this.bones;
     if (b.jaw) b.jaw.quaternion.copy(this.rest.jaw);
     b.lids.forEach((l, i) => l.position.copy(this.rest.lids[i]));
+    b.eyes.forEach((e, i) => e.quaternion.copy(this.rest.eyes[i]));
     this.mixer.update(dt);
     this.root.updateMatrixWorld(true);
 
-    // Huvud och nacke vänds mot det personen tittar på
+    // Huvud och nacke vänds mot det personen tittar på. Korrigeringen räknas från huvudets
+    // faktiska riktning i animationen, så att personen får riktig ögonkontakt.
     let yaw = 0;
     let pitch = 0;
-    if (this.lookTarget && b.head) {
-      b.head.getWorldPosition(_v);
+    const aim = (bone, fwdLocal) => {
+      bone.getWorldPosition(_v);
       _v2.copy(this.lookTarget).sub(_v);
-      yaw = angleDiff(this.heading, Math.atan2(_v2.x, _v2.z));
-      pitch = Math.atan2(_v2.y, Math.hypot(_v2.x, _v2.z));
-      if (Math.abs(yaw) > 1.6) {
-        yaw = 0;
-        pitch = 0;
-      }
+      const fwd = _v.copy(fwdLocal).applyQuaternion(bone.getWorldQuaternion(_q));
+      return [
+        angleDiff(Math.atan2(fwd.x, fwd.z), Math.atan2(_v2.x, _v2.z)),
+        Math.atan2(_v2.y, Math.hypot(_v2.x, _v2.z)) - Math.asin(Math.max(-1, Math.min(1, fwd.y))),
+      ];
+    };
+    if (this.lookTarget && b.head) {
+      const toTarget = Math.atan2(this.lookTarget.x - this.position.x, this.lookTarget.z - this.position.z);
+      // Mål bakom ryggen ignoreras; då vrider man hellre hela kroppen
+      if (Math.abs(angleDiff(this.heading, toTarget)) < 1.6) [yaw, pitch] = aim(b.head, this.headForward);
     }
     const w = this.walkAmount > 0.5 ? 0.35 : 1;
     this.headYaw += (Math.max(-1.1, Math.min(1.1, yaw)) * w - this.headYaw) * Math.min(1, dt * 4);
-    this.headPitch += (Math.max(-0.45, Math.min(0.45, pitch)) * w - this.headPitch) * Math.min(1, dt * 4);
+    this.headPitch += (Math.max(-0.5, Math.min(0.5, pitch)) * w - this.headPitch) * Math.min(1, dt * 4);
     // Personens högra sida i världen, axel för nickrörelser
     _axis.set(1, 0, 0).applyAxisAngle(UP, this.heading);
     if (b.neck) {
@@ -782,12 +950,26 @@ export class Character {
     const t = performance.now() / 1000;
     const targetJaw = this.speaking > 0 ? 0.03 + Math.abs(Math.sin(t * 13.7) * Math.sin(t * 5.3 + this.id)) * 0.2 : 0;
     this.jaw += (targetJaw - this.jaw) * Math.min(1, dt * 18);
-    if (b.jaw && this.jaw > 0.002) rotateBoneWorld(b.jaw, _axis, this.jaw);
+    if (b.jaw && this.jaw > 0.002 && !this.hasFace) rotateBoneWorld(b.jaw, _axis, this.jaw);
 
-    // Blinkningar: övre ögonlocken flyttas ner en kort stund
-    this.blinkTimer -= dt;
-    if (this.blinkTimer < 0) this.blinkTimer = rand(2, 5.5);
-    if (this.blinkTimer < 0.14) {
+    // Små naturliga ögonryck
+    this.saccade.timer -= dt;
+    if (this.saccade.timer < 0) {
+      this.saccade.timer = rand(0.4, 1.8);
+      this.saccade.x = rand(-0.06, 0.06);
+      this.saccade.y = rand(-0.04, 0.04);
+    }
+    // Ögonen tar resten av vägen mot målet (efter huvudets vridning), plus små ryck
+    b.eyes.forEach((eye, i) => {
+      let [ey, ep] = this.lookTarget && w === 1 ? aim(eye, this.eyeForward[i]) : [0, 0];
+      ey = Math.max(-0.35, Math.min(0.35, ey)) + this.saccade.x;
+      ep = Math.max(-0.25, Math.min(0.25, ep)) + this.saccade.y;
+      rotateBoneWorld(eye, UP, ey);
+      rotateBoneWorld(eye, _axis, -ep);
+    });
+
+    if (this.hasFace) this.updateFace(dt);
+    else if (this.blinkTimer < 0.14) {
       for (const lid of b.lids) {
         lid.parent.getWorldQuaternion(_q2).invert();
         _v.set(0, -this.blinkDrop, 0).applyQuaternion(_q2);

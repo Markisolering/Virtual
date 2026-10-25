@@ -10,7 +10,8 @@ const SHELL = `shell-${BUILD}`;
 // public/avatars eller public/anims byts ut, så hämtas bara de filerna på nytt.
 const AVATARS = 'models-v1'; // hette så innan animationerna fick en egen cache
 const ANIMS = 'anims-v2';
-const KEEP = [SHELL, AVATARS, ANIMS];
+const AVATARS_HQ = 'avatars-hq-v1'; // närbildsmodellerna
+const KEEP = [SHELL, AVATARS, ANIMS, AVATARS_HQ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -69,7 +70,9 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== location.origin) return; // t.ex. anrop till Claude går alltid direkt till nätet
 
   const path = url.pathname;
-  if (path.includes('/anims/')) {
+  if (path.includes('/avatars-hq/') && !path.endsWith('.json')) {
+    event.respondWith(cacheFirst(req, AVATARS_HQ));
+  } else if (path.includes('/anims/')) {
     event.respondWith(cacheFirst(req, ANIMS));
   } else if (path.includes('/avatars/') && !path.endsWith('.json')) {
     event.respondWith(cacheFirst(req, AVATARS));

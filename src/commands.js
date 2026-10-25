@@ -163,3 +163,19 @@ export function commandResultText(cmd, result) {
   if (result.ok) return `Klart: ${cmd.action}${cmd.place ? ` (${PLACES[cmd.place].name})` : ''}.`;
   return `Gick inte: ${cmd.action} (${result.reason}). Förklara det kort för spelaren.`;
 }
+
+// Känslor som syns i ansiktet i närbildsläget
+export const EMOTIONS = { glad: 'happy', skrattar: 'laugh', ledsen: 'sad', arg: 'angry', forvanad: 'surprised', fundersam: 'thinking', trott: 'tired', neutral: 'neutral' };
+
+export const EMOTION_TOOL = {
+  name: 'visa_kansla',
+  description: 'Visa en känsla i ansiktet medan du säger din replik. Använd när din känsla tydligt syns eller ändras (inte i varje replik).',
+  input_schema: {
+    type: 'object',
+    properties: { kansla: { type: 'string', enum: Object.keys(EMOTIONS) } },
+    required: ['kansla'],
+    additionalProperties: false,
+  },
+  strict: true,
+  eager_input_streaming: true,
+};
