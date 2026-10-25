@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { ACTION_TOOL, EMOTION_TOOL, EMOTIONS, validCommand, commandResultText } from './commands.js';
+import { ACTION_TOOL, EMOTION_TOOL, EMOTIONS, CLOTHES_TOOL, INTERACT_TOOL, validCommand, validClothes, validInteraction, commandResultText } from './commands.js';
 import { MOTION_TOOL, PLAY_MOTION_TOOL, cleanMotion, findMotion, saveMotion, motionNames } from './motion.js';
 import { motionGuide, motionLessons } from './learning.js';
 
@@ -316,7 +316,7 @@ export class ClaudeBrain {
         betas: ['server-side-fallback-2026-07-01'],
         fallbacks: 'default',
         system: ch.systemPrompt,
-        tools: [ACTION_TOOL, MOTION_TOOL, PLAY_MOTION_TOOL, ...(ch.hasFace ? [EMOTION_TOOL] : [])],
+        tools: [ACTION_TOOL, MOTION_TOOL, PLAY_MOTION_TOOL, CLOTHES_TOOL, INTERACT_TOOL, ...(ch.hasFace ? [EMOTION_TOOL] : [])],
         messages: ch.history,
       });
       full = '';
@@ -391,7 +391,8 @@ export class ClaudeBrain {
         continue;
       }
       // Med strömmade verktygsargument kan indata vara ofullständig; kontrollera den innan något körs
-      const cmd = final.stop_reason === 'max_tokens' ? null : validCommand(block.input);
+      const validate = block.name === CLOTHES_TOOL.name ? validClothes : block.name === INTERACT_TOOL.name ? validInteraction : validCommand;
+      const cmd = final.stop_reason === 'max_tokens' ? null : validate(block.input);
       if (!cmd) {
         results.push({ type: 'tool_result', tool_use_id: block.id, content: 'Ogiltig handling, inget hände.', is_error: true });
         continue;

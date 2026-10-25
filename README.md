@@ -87,13 +87,31 @@ Färdiga poser som fungerar utan AI: *lägg dig*, *lägg dig på magen*, *sätt 
 
 ### Betyg och inlärning
 
-Efter varje rörelse visas ett betygskort: 👍 (bra), ↗️ **Nästan** (inte bra, men åt rätt håll), 👎 (dålig) och 🔁 **Igen** (gör rörelsen en gång till direkt). Vid ↗️ väljer du vad som ska justeras (mer, mindre, snabbare, långsammare, håll posen längre) och vid 👎 vad som var fel, eller skriver/säger det själv. Med AI-samtal gör personen genast om rörelsen: vid ↗️ justeras bara det du nämnde.
+Efter varje rörelse visas ett betygskort: 👍 (bra), ↗️ **Nästan** (inte bra, men åt rätt håll), 👎 (dålig), 🔁 **Igen** (gör rörelsen en gång till direkt) och ✋ **Visa** (se nedan). Vid ↗️ väljer du vad som ska justeras (mer, mindre, snabbare, långsammare, håll posen längre) och vid 👎 vad som var fel, skriver/säger det själv, eller väljer **Inget särskilt** för att bara ge betyget. Med AI-samtal gör personen genast om rörelsen: vid ↗️ justeras bara det du nämnde.
 
 Betygen lär spelet att göra bättre rörelser (`src/learning.js`):
 
 - **Förebilder:** rörelser med tummen upp skickas med som exempel när Claude skapar nya rörelser.
 - **Lärdomar:** efter varje betyg sammanfattar en "rörelsecoach" (ett separat Claude-anrop) alla betyg till en kort lista med konkreta lärdomar, t.ex. "Honnör: armbåge ca 135°". Listan följer med till alla personer och samtal.
 - Under ⚙︎ Inställningar ser du hur många rörelser som är inlärda, kan läsa lärdomarna och kan nollställa allt.
+
+### Visa själv hur det ska se ut (✋ Visa)
+
+Gör personen nästan rätt, t.ex. drar handen i luften i stället för över håret, trycker du ✋ **Visa** (`src/editor.js`):
+
+1. Rörelsen fryses och kameran ställs runt personen. Dra med ett finger på bakgrunden för att vrida kameran och nyp för att zooma. Reglaget längst ner väljer ögonblick i rörelsen.
+2. Dra ringarna: orange för händer och fötter, blå för huvudet (vart det tittar), grön för bröstet. Bara den kroppsdelen flyttas; armen eller benet böjs med automatiskt (enkel inverterad kinematik). Släpper du handen på kroppen, t.ex. på håret, läggs den mot ytan där.
+3. Tryck **Nästa →**, skriv eller säg kort vad du gjorde ("lade handen på håret") och tryck **Spara och lär**.
+
+Den rättade posen sparas i rörelsen och personen gör den direkt igen. Rättelsen (vinklarna före och efter, plus din förklaring) skickas till rörelsecoachen, som drar generella slutsatser, t.ex. vilka vinklar som behövs för att nå huvudet. Rättade rörelser blir också förebilder när Claude skapar nya rörelser.
+
+## Byta kläder
+
+"Ta på dig en röd tröja och svarta byxor", "byt till vita skor", "byt kläder" (slumpade färger) eller "ta på dig dina vanliga kläder igen". Modellerna har kläderna målade i samma textur som kroppen, så plagg kan inte bytas mot andra plagg (t.ex. byxor mot kjol). I stället färgas överdel, underdel och skor om (`src/clothes.js`). Mönster, veck och skuggor i tyget behålls, och huden känns igen och lämnas orörd. Med AI-samtal använder Claude verktyget `byt_klader`.
+
+## Personerna gör saker med varandra
+
+Be den du pratar med göra något med någon annan i rummet, med personens förnamn: "krama Wilma", "ge Johan en high five", "skaka hand med Axel", "dansa med Fatima", "prata med Wilma", "sätt dig bredvid Johan" eller "gå till Axel". Är det bara en till i rummet räcker "krama henne" eller "prata med varandra". Personen går fram till den andra, de vänder sig mot varandra och gör rörelser som passar ihop (`src/interact.js`). När de pratar syns replikerna i bubblor ovanför dem; med AI-samtal skriver Claude replikerna (verktyget `interagera`), annars väljs ett kort småprat.
 
 ## Prata med rösten
 
@@ -151,4 +169,7 @@ public/sw.js        Service worker för offline och snabb start
 tools/              Skript som konverterar Rocketbox (FBX + TGA) till GLB
 src/nav.js          Rutnät, A*-vägplanering och kollision
 src/dialogue.js     Inbyggd dialogmotor och Claude-integration
+src/editor.js       Redigeraren där spelaren visar hur en rörelse ska se ut
+src/clothes.js      Byta kläder (färga om överdel, underdel och skor)
+src/interact.js     Personer som gör saker med varandra
 ```

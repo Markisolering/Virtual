@@ -6,6 +6,7 @@ import { SPAWN } from './room.js';
 import { makePersona } from './persona.js';
 import { GESTURES, PLACES } from './commands.js';
 import { MotionRig, prepareMotion, sampleMotion } from './motion.js';
+import { Wardrobe, randomOutfit } from './clothes.js';
 
 export { PERSONALITIES } from './persona.js';
 
@@ -274,6 +275,7 @@ export class Character {
     model.scale.setScalar(rand(0.97, 1.04));
     this.root.add(model);
     this.model = model;
+    this.wardrobe = new Wardrobe(model);
     const nodes = {};
     model.traverse((o) => (nodes[o.name] = o));
     this.bones = {
@@ -608,6 +610,10 @@ export class Character {
   }
 
   idleLook(dt, world) {
+    if (this.partner) {
+      this.lookTarget = this.partner.headWorld();
+      return;
+    }
     const p = world.player.position;
     const d = Math.hypot(p.x - this.position.x, p.z - this.position.z);
     if (d < 3.2) {
@@ -814,11 +820,19 @@ export class Character {
     if (this.gesture) this.endGesture();
     // En ny rörelse tar vid där den förra slutade; "stanna" behåller posen; allt annat tonar ut den mjukt
     const wasPosed = !!this.motion && this.motion.releaseAt === undefined;
-    if (this.motion && !['rorelse', 'stanna', 'sluta_folja'].includes(a)) this.stopMotion(true);
+    if (this.motion && !['rorelse', 'stanna', 'sluta_folja', 'byt_klader'].includes(a)) this.stopMotion(true);
+    // Något nytt avbryter det personen gör tillsammans med någon annan
+    if (this.partner && !cmd.internal) this.partner = null;
+    if (a === 'byt_klader') return this.wardrobe.set(cmd.clothes || randomOutfit()) ? { ok: true } : { ok: false, reason: 'noClothes' };
     // Avbryt en pågående väg till en stol
     if (this.state === 'toSeat' && this.seat) {
       if (this.seat.occupant === this) this.seat.occupant = null;
       this.seat = null;
+    }
+    if (a === 'interagera') {
+      const name = String(cmd.person || '').toLowerCase();
+      const other = world.characters.find((c) => c !== this && c.persona.firstName.toLowerCase() === name);
+      return world.interactions.start(this, other, cmd.kind, cmd.lines, world);
     }
     if (a === 'satt_dig' && this.seated && (!place || place.seat === this.seat?.label)) return { ok: false, reason: 'already' };
     // Det mesta kräver att personen står upp först

@@ -929,3 +929,26 @@ body.editing #rate-pop,
 body.editing #focus-label {
   display: none !important;
 }
+
+/* Repliker när personerna pratar med varandra */
+.npc-bubble {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 14;
+  max-width: min(60vw, 260px);
+  padding: 7px 12px;
+  border-radius: 16px;
+  background: rgba(235, 240, 250, 0.92);
+  color: #1d1916;
+  font-size: 13.5px;
+  line-height: 1.35;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+.npc-bubble[hidden] {
+  display: none !important;
+}
+body.editing .npc-bubble {
+  display: none !important;
+}

@@ -11,6 +11,7 @@ import { Character, angleDiff, library } from './characters.js';
 import { OfflineBrain, ClaudeBrain, loadSettings, saveSettings, DEFAULT_MODEL, apiMessage } from './dialogue.js';
 import { rateMotion, updateLessons, motionLessons, learnedCount, resetLearning, recordCorrection } from './learning.js';
 import { PoseEditor } from './editor.js';
+import { Interactions } from './interact.js';
 import { parseCommand, commandReply } from './commands.js';
 import { PRESETS, findMotion, motionTitle } from './motion.js';
 import { voice } from './voice.js';
@@ -122,7 +123,8 @@ const input = { joy: new THREE.Vector2(), keys: new Set() };
 // ---------------- Karaktärer ----------------
 const characters = [];
 let nextId = 1;
-const simWorld = { nav, seats: world.seats, pois: world.pois, player, characters };
+const interactions = new Interactions({ camera });
+const simWorld = { nav, seats: world.seats, pois: world.pois, player, characters, interactions };
 
 async function addCharacter(entry) {
   const asset = await library.create(entry);
@@ -659,7 +661,7 @@ async function send(text) {
   if (!result) {
     await wait(450 + Math.random() * 600);
     // Ber spelaren personen göra något? Annars ett vanligt samtalssvar.
-    const cmd = parseCommand(text);
+    const cmd = parseCommand(text, characters.filter((x) => x !== c && x.state !== 'leaving').map((x) => x.persona.firstName));
     if (cmd) {
       const res = execute(cmd);
       result = { text: commandReply(c.persona, cmd, res), outcomes: [{ cmd, res }] };
@@ -1285,6 +1287,7 @@ function frame(now) {
   }
 
   for (const c of characters) c.update(dt, simWorld);
+  interactions.update(dt, simWorld);
   for (let i = characters.length - 1; i >= 0; i--) {
     const c = characters[i];
     if (c.done) {
