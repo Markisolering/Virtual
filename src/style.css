@@ -150,6 +150,7 @@ button {
 }
 
 #toast {
+  z-index: 60;
   position: fixed;
   left: 50%;
   top: calc(14px + env(safe-area-inset-top));
@@ -452,4 +453,51 @@ kbd {
 }
 .credits a {
   color: inherit;
+}
+
+/* ---------- Uppdateringar ---------- */
+#update-banner {
+  position: fixed;
+  left: 50%;
+  top: calc(10px + env(safe-area-inset-top));
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  padding: 8px 8px 8px 16px;
+  border-radius: 999px;
+  background: var(--panel-solid);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+  font-size: 14px;
+  animation: pop 0.25s ease-out;
+}
+#update-banner button {
+  flex: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+.version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 0 16px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.version-row button {
+  flex: none;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+}
+body.has-update #toast {
+  top: calc(66px + env(safe-area-inset-top));
 }

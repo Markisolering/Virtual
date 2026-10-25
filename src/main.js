@@ -566,9 +566,80 @@ $('set-save').addEventListener('click', () => {
 
 // ---------------- App-installation ----------------
 const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone;
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Service worker kunde inte registreras', err));
+
+// ---------------- Uppdateringar ----------------
+// Varje publicering ger en ny service worker. När den har laddats ner visas en banner, och
+// först när man trycker på "Uppdatera" tar den nya versionen över och sidan laddas om.
+$('app-version').textContent = `Version ${__APP_VERSION__}`;
+let swReg = null;
+let waitingWorker = null;
+let updateRequested = false;
+
+function showUpdate(worker) {
+  waitingWorker = worker;
+  $('update-banner').hidden = false;
+  document.body.classList.add('has-update');
 }
+
+function watchInstalling(worker) {
+  worker.addEventListener('statechange', () => {
+    // Bara en uppdatering om en äldre version redan styr sidan (inte vid första installationen)
+    if (worker.state === 'installed' && navigator.serviceWorker.controller) showUpdate(worker);
+  });
+}
+
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  navigator.serviceWorker
+    .register('./sw.js')
+    .then((reg) => {
+      swReg = reg;
+      if (reg.waiting && navigator.serviceWorker.controller) showUpdate(reg.waiting);
+      if (reg.installing) watchInstalling(reg.installing);
+      reg.addEventListener('updatefound', () => watchInstalling(reg.installing));
+      // Leta efter nya versioner när appen öppnas igen och med jämna mellanrum
+      document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && reg.update().catch(() => {}));
+      setInterval(() => reg.update().catch(() => {}), 20 * 60 * 1000);
+    })
+    .catch((err) => console.warn('Service worker kunde inte registreras', err));
+  // Ladda bara om när användaren själv har valt att uppdatera, inte när cachen aktiveras första gången
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!updateRequested) return;
+    updateRequested = false;
+    location.reload();
+  });
+}
+
+$('update-btn').addEventListener('click', () => {
+  $('update-btn').textContent = 'Uppdaterar…';
+  updateRequested = true;
+  if (waitingWorker) waitingWorker.postMessage('SKIP_WAITING');
+  else location.reload();
+});
+
+$('check-update').addEventListener('click', async () => {
+  const btn = $('check-update');
+  if (!swReg) {
+    toast('Uppdateringar fungerar i den installerade appen.');
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Söker…';
+  try {
+    await swReg.update();
+    if (swReg.waiting) {
+      showUpdate(swReg.waiting);
+    } else if (swReg.installing) {
+      toast('En ny version laddas ner…');
+    } else {
+      toast('Du har den senaste versionen.');
+    }
+  } catch {
+    toast('Kunde inte söka efter uppdateringar. Är du ansluten till internet?');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sök efter uppdatering';
+  }
+});
 let installPrompt = null;
 addEventListener('beforeinstallprompt', (e) => {
   // Android/Chrome: visa en egen knapp i stället för webbläsarens standardruta

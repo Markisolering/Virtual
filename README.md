@@ -18,6 +18,10 @@ Appen öppnas sedan i helskärm från en egen ikon och fungerar även offline ef
 1. **Settings → Pages → Build and deployment → Source:** välj *GitHub Actions*.
 2. Slå ihop koden till grenen `main`. Arbetsflödet `.github/workflows/deploy.yml` bygger och publicerar då spelet automatiskt vid varje ändring.
 
+### Uppdateringar
+
+När en ny version har publicerats märker appen det själv, när den öppnas och var 20:e minut medan den är igång. Då visas en banner överst med knappen **Uppdatera**. Under ⚙︎ Inställningar finns appens version och knappen **Sök efter uppdatering**. Personmodellerna sparas mellan uppdateringar, så de behöver inte laddas ner igen.
+
 ## Utveckla på dator
 
 ```bash
