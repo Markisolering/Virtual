@@ -59,12 +59,25 @@ export function rateMotion(name, grade, note) {
   return r;
 }
 
-// Rörelser med bäst betyg, som exempel för Claude
+// Spelaren har själv visat hur rörelsen ska se ut i redigeraren
+export function recordCorrection(name, correction) {
+  const all = ratings();
+  const r = { up: 0, close: 0, down: 0, notes: [], ...all[name] };
+  r.corrections = [...(r.corrections || []), correction].slice(-4);
+  if (correction.note) r.notes = [...r.notes, `rättat: ${correction.note}`].slice(-6);
+  r.last = Date.now();
+  all[name] = r;
+  write(RATINGS, all);
+  return r;
+}
+
+// Rörelser med bäst betyg (eller som spelaren har rättat själv), som exempel för Claude
 export function bestExamples(n = 3) {
   const all = ratings();
+  const score = (r) => r.up - r.down + (r.corrections?.length ? 2 : 0);
   return Object.entries(all)
-    .filter(([, r]) => r.up > 0 && r.up >= r.down)
-    .sort((a, b) => b[1].up - b[1].down - (a[1].up - a[1].down) || b[1].last - a[1].last)
+    .filter(([, r]) => (r.up > 0 && r.up >= r.down) || r.corrections?.length)
+    .sort((a, b) => score(b[1]) - score(a[1]) || b[1].last - a[1].last)
     .map(([name]) => [name, findMotion(name)])
     .filter(([, def]) => def)
     .slice(0, n);
@@ -85,7 +98,7 @@ export function motionGuide() {
   if (lessons.length) parts.push(`Lärdomar om rörelser (från spelarens betyg – följ dem när du skapar rörelser):\n${lessons.map((l) => `- ${l}`).join('\n')}`);
   if (examples.length) {
     parts.push(
-      `Rörelser som spelaren har gett tummen upp (använd som förebild för vinklar och tempo):\n${examples
+      `Rörelser som spelaren har gett tummen upp eller själv rättat (använd som förebild för vinklar och tempo):\n${examples
         .map(([name, def]) => `- ${name} (${def.beskrivning || name}): ${compact(def)}`)
         .join('\n')}`,
     );
@@ -99,7 +112,7 @@ let coachBusy = false;
 
 const GRADE_TEXT = { up: 'tummen upp (bra)', close: 'nästan (inte bra, men åt rätt håll – justera, gör inte om från början)', down: 'tummen ner (dålig)' };
 
-export async function updateLessons(settings, name, grade, note) {
+export async function updateLessons(settings, name, grade, note, correction) {
   if (!settings.apiKey || coachBusy) return null;
   const def = findMotion(name);
   if (!def) return null;
@@ -127,7 +140,11 @@ ${motionLessons().map((l) => `- ${l}`).join('\n') || '(inga ännu)'}
 Rörelse: ${name} (${def.beskrivning || ''})
 ${compact(def)}
 
-Spelarens betyg nu: ${GRADE_TEXT[grade]}${note ? `. Kommentar: ${note}` : ''}
+${
+            correction
+              ? `Spelaren har själv rättat rörelsen i en redigerare genom att dra kroppsdelarna dit de ska. Rörelsen ovan är den RÄTTADE versionen – den är facit. Vid ${correction.tid} s ändrades: ${correction.andringar || '(små ändringar)'}.${correction.note ? ` Spelarens förklaring: "${correction.note}".` : ''} Dra generella slutsatser om var kroppsdelar finns (t.ex. vilka vinklar som behövs för att handen ska nå håret, ansiktet eller axeln).`
+              : `Spelarens betyg nu: ${GRADE_TEXT[grade]}${note ? `. Kommentar: ${note}` : ''}`
+          }
 Tidigare betyg för rörelsen: ${r.up || 0} bra, ${r.close || 0} nästan, ${r.down || 0} dåliga${r.notes?.length ? `, kommentarer: ${r.notes.join('; ')}` : ''}`,
         },
       ],

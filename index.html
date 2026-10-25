@@ -156,6 +156,32 @@
       </div>
     </div>
 
+    <!-- Redigeraren: spelaren visar hur en rörelse ska se ut -->
+    <div id="pose-editor" hidden>
+      <div id="pose-handles"></div>
+      <div class="pose-top">
+        <span id="pose-title"></span>
+        <button type="button" id="pose-cancel" aria-label="Avbryt">✕</button>
+      </div>
+      <div class="pose-panel" id="pose-step1">
+        <p class="pose-hint">Dra ringarna: orange = händer och fötter, blå = huvudet, grön = bröstet. Släpp handen på kroppen så hamnar den där. Dra på bakgrunden för att vrida kameran, nyp för att zooma.</p>
+        <div class="pose-time"><input type="range" id="pose-slider" min="0" max="1" step="0.05" /><span id="pose-time"></span></div>
+        <div class="pose-actions">
+          <button type="button" id="pose-reset">↺ Återställ</button>
+          <button type="button" id="pose-next" class="primary">Nästa →</button>
+        </div>
+      </div>
+      <div class="pose-panel" id="pose-step2" hidden>
+        <p class="pose-hint">Skriv kort vad du gjorde, t.ex. "lade handen på håret, högst upp på huvudet".</p>
+        <p class="pose-changes" id="pose-changes"></p>
+        <div class="pose-note"><input type="text" id="pose-note" placeholder="Vad ändrade du?" enterkeyhint="done" /><button type="button" class="mic-btn" id="pose-mic" aria-label="Säg det">🎤</button></div>
+        <div class="pose-actions">
+          <button type="button" id="pose-back">← Tillbaka</button>
+          <button type="button" id="pose-save" class="primary">Spara och lär</button>
+        </div>
+      </div>
+    </div>
+
     <div id="toast"></div>
 
     <div id="update-banner" class="update-banner" hidden>

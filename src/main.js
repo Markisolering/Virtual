@@ -9,7 +9,9 @@ import { buildRoom, SPAWN, DOOR, ROOM } from './room.js';
 import { Nav } from './nav.js';
 import { Character, angleDiff, library } from './characters.js';
 import { OfflineBrain, ClaudeBrain, loadSettings, saveSettings, DEFAULT_MODEL, apiMessage } from './dialogue.js';
-import { rateMotion, updateLessons, motionLessons, learnedCount, resetLearning } from './learning.js';
+import { rateMotion, updateLessons, motionLessons, learnedCount, resetLearning, recordCorrection } from './learning.js';
+import { PoseEditor } from './editor.js';
+import { Interactions } from './interact.js';
 import { parseCommand, commandReply } from './commands.js';
 import { PRESETS, findMotion, motionTitle } from './motion.js';
 import { voice } from './voice.js';
@@ -121,7 +123,8 @@ const input = { joy: new THREE.Vector2(), keys: new Set() };
 // ---------------- Karaktärer ----------------
 const characters = [];
 let nextId = 1;
-const simWorld = { nav, seats: world.seats, pois: world.pois, player, characters };
+const interactions = new Interactions({ camera });
+const simWorld = { nav, seats: world.seats, pois: world.pois, player, characters, interactions };
 
 async function addCharacter(entry) {
   const asset = await library.create(entry);
@@ -239,7 +242,7 @@ let joyId = null;
 const LOOK_SENS = isTouch ? 0.0055 : 0.0035;
 
 canvas.addEventListener('pointerdown', (e) => {
-  if (chatOpen || !started) return;
+  if (chatOpen || !started || editor.active) return;
   canvas.setPointerCapture(e.pointerId);
   const isLeft = e.clientX < innerWidth * 0.45;
   if (e.pointerType === 'touch' && isLeft && joyId === null) {
@@ -658,7 +661,7 @@ async function send(text) {
   if (!result) {
     await wait(450 + Math.random() * 600);
     // Ber spelaren personen göra något? Annars ett vanligt samtalssvar.
-    const cmd = parseCommand(text);
+    const cmd = parseCommand(text, characters.filter((x) => x !== c && x.state !== 'leaving').map((x) => x.persona.firstName));
     if (cmd) {
       const res = execute(cmd);
       result = { text: commandReply(c.persona, cmd, res), outcomes: [{ cmd, res }] };
@@ -749,14 +752,20 @@ function startListening() {
   }
   voice.cancel(); // tysta personen om hen pratar
   setMicState(true);
-  const field = activeInput();
+  // I redigeraren skrivs det man säger in som förklaring
+  const editing = editor.active;
+  const field = editing ? $('pose-note') : activeInput();
   voice.listen({
     onPartial: (t) => {
       field.value = t;
-      if (compactView()) showHeard(t, true);
+      if (compactView() && !editing) showHeard(t, true);
     },
     onEnd: (t) => {
       setMicState(false);
+      if (editing) {
+        if (t) field.value = t;
+        return;
+      }
       if (!t) {
         showHeard('');
         return;
@@ -813,7 +822,8 @@ function ratingCard(c, name) {
       <button type="button" data-v="up" aria-label="Bra">👍</button>
       <button type="button" data-v="close" aria-label="Nästan, åt rätt håll">↗️ Nästan</button>
       <button type="button" data-v="down" aria-label="Dålig">👎</button>
-      <button type="button" data-v="again" aria-label="Gör igen">🔁 Igen</button></div>`;
+      <button type="button" data-v="again" aria-label="Gör igen">🔁 Igen</button>
+      <button type="button" data-v="show" aria-label="Visa själv hur den ska se ut">✋ Visa</button></div>`;
     card.querySelector('b').textContent = label;
     card.querySelector('[data-v="up"]').addEventListener('click', () => {
       done(`👍 Tack! "${label}" blir en förebild för nya rörelser.`);
@@ -830,6 +840,10 @@ function ratingCard(c, name) {
       }
       c.command({ action: 'rorelse', motion: def, name }, simWorld);
       armHide(30000);
+    });
+    // Frys rörelsen och flytta kroppsdelarna själv
+    card.querySelector('[data-v="show"]').addEventListener('click', () => {
+      if (openEditor(c, name)) done('✋ Visa hur det ska se ut …');
     });
   };
   const armHide = (ms) => {
@@ -850,7 +864,8 @@ function ratingCard(c, name) {
     card.innerHTML = '<span></span><div class="rate-chips"></div>';
     card.querySelector('span').textContent = question;
     const chips = card.querySelector('.rate-chips');
-    for (const p of [...options, 'Annat…', '← Tillbaka']) {
+    // "Inget särskilt" ger bara betyget, utan att säga vad som var fel
+    for (const p of ['Inget särskilt', ...options, 'Annat…', '← Tillbaka']) {
       const b = document.createElement('button');
       b.type = 'button';
       b.textContent = p;
@@ -868,7 +883,7 @@ function ratingCard(c, name) {
           return;
         }
         done(`${icon} ${p}`);
-        giveFeedback(name, grade, p.toLowerCase(), c);
+        giveFeedback(name, grade, p === 'Inget särskilt' ? null : p.toLowerCase(), c);
       });
       chips.appendChild(b);
     }
@@ -877,6 +892,59 @@ function ratingCard(c, name) {
   buttons();
   return card;
 }
+
+// ---------------- Redigeraren ----------------
+const editor = new PoseEditor({
+  camera,
+  canvas,
+  ui: {
+    root: $('pose-editor'),
+    handles: $('pose-handles'),
+    slider: $('pose-slider'),
+    time: $('pose-time'),
+    title: $('pose-title'),
+    step1: $('pose-step1'),
+    step2: $('pose-step2'),
+    note: $('pose-note'),
+    changes: $('pose-changes'),
+  },
+  onClose: () => document.body.classList.remove('editing'),
+  onSave: (c, name, def, correction) => {
+    recordCorrection(name, correction);
+    // Rörelsecoachen drar lärdomar av rättelsen, t.ex. var håret sitter
+    updateLessons(settings, name, 'close', correction.note, correction).then((lessons) => lessons && toast(`Lärdomarna är uppdaterade utifrån din rättelse (${lessons.length} st).`));
+    toast(`Sparat! "${motionTitle(name)}" görs nu som du visade.`);
+    if (!characters.includes(c)) return;
+    c.command({ action: 'rorelse', motion: def, name }, simWorld);
+    setTimeout(() => characters.includes(c) && addRating(c, name), 600);
+  },
+});
+
+function openEditor(c, name) {
+  const def = findMotion(name);
+  if (!def || !characters.includes(c) || c.state === 'leaving') {
+    toast('Personen är inte kvar i rummet.');
+    return false;
+  }
+  // Börja vid det ögonblick rörelsen är nu (eller slutposen om den är klar)
+  const m = c.motion;
+  let time;
+  if (m && m.def === def) time = m.def.loop && m.duration > 0 ? m.t % m.duration : Math.min(m.t, m.duration);
+  if (chatOpen) closeChat();
+  ratePop.hidden = true;
+  voice.cancel();
+  document.body.classList.add('editing');
+  editor.open(c, name, def, time);
+  return true;
+}
+
+$('pose-cancel').addEventListener('click', () => editor.close(false));
+$('pose-reset').addEventListener('click', () => editor.reset());
+$('pose-next').addEventListener('click', () => editor.showStep(2));
+$('pose-back').addEventListener('click', () => editor.showStep(1));
+$('pose-save').addEventListener('click', () => editor.save($('pose-note').value.trim()));
+$('pose-note').addEventListener('keydown', (e) => e.key === 'Enter' && editor.save($('pose-note').value.trim()));
+$('pose-slider').addEventListener('input', (e) => editor.setTime(Number(e.target.value)));
 
 // grade: 'up' (bra), 'close' (inte bra men åt rätt håll) eller 'down' (dålig)
 function giveFeedback(name, grade, note, c) {
@@ -1219,6 +1287,7 @@ function frame(now) {
   }
 
   for (const c of characters) c.update(dt, simWorld);
+  interactions.update(dt, simWorld);
   for (let i = characters.length - 1; i >= 0; i--) {
     const c = characters[i];
     if (c.done) {
@@ -1233,13 +1302,16 @@ function frame(now) {
     }
   }
 
-  updatePlayer(dt);
-  updateZoom(dt);
-  updateCamera();
+  if (editor.active) editor.update(dt);
+  else {
+    updatePlayer(dt);
+    updateZoom(dt);
+    updateCamera();
+  }
   updateDoor(dt);
   updateKeyLight(dt);
   scene.userData.clock?.userData.update();
-  if (started) updateFocus();
+  if (started && !editor.active) updateFocus();
   updateBubble();
 
   if (composer) composer.render(dt);
@@ -1267,4 +1339,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Exponera för felsökning i konsolen
-window.__game = { scene, characters, player, camera, sim: simWorld, spawnAtDoor, openChat, send, library, motions: PRESETS };
+window.__game = { editor, scene, characters, player, camera, sim: simWorld, spawnAtDoor, openChat, send, library, motions: PRESETS };
