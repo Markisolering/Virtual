@@ -8,6 +8,11 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 // Färdiga egna rörelser som den inbyggda motorn känner igen
 const MOTION_PHRASES = [
+  [/(kullerbytta|kullerbyttor|rulla framåt)/, 'kullerbytta'],
+  [/(bakåtvolt|volt bakåt|gör en volt|voltera|baklängesvolt|backflip)/, 'bakatvolt'],
+  [/(hjula|hjulning|gör ett hjul|hjulet)/, 'hjula'],
+  [/(stå på händerna|står på händerna|handstående|gå ner i handstående)/, 'sta_pa_handerna'],
+  [/(rulla runt|rulla på golvet|rulla omkring|rulla dig)/, 'rulla_runt'],
   [/\b(lägg dig på magen|ligg på magen)\b/, 'ligga_pa_magen'],
   [/\b(lägg dig|ligg ner|lägga dig|ligg på golvet|ligg på rygg)\b/, 'ligga_pa_rygg'],
   [/\b(sätt dig på golvet|sitt på golvet|sätta dig på golvet)\b/, 'sitta_pa_golvet'],
@@ -30,7 +35,9 @@ export const PLACES = {
   soffan: { name: 'soffan', at: 'i soffan', seat: 'soffan', re: /soffa/ },
   lasfatoljen: { name: 'läsfåtöljen', at: 'i läsfåtöljen', seat: 'läsfåtöljen', re: /läsfåtölj|läshörn/ },
   fatoljen: { name: 'fåtöljen', at: 'i fåtöljen', seat: 'fåtöljen', re: /fåtölj|orange stol/ },
+  soffbordet: { name: 'soffbordet', at: 'vid soffbordet', poi: 'tv:n', re: /soffbord|lilla bordet|vardagsrumsbord/ },
   matbordet: { name: 'matbordet', at: 'vid matbordet', seat: 'matbordet', poi: 'matbordet', re: /matbord|bordet|middagsbord|\bstol/ },
+  golvet: { name: 'golvet', at: 'på golvet', re: /golv/ },
   koket: { name: 'köket', poi: 'köket', re: /kök|diskbänk|diskho|spis/ },
   kylskapet: { name: 'kylskåpet', poi: 'kylskåpet', re: /kyl/ },
   fonstret: { name: 'fönstret', poi: 'fönstret', re: /fönst/ },
@@ -41,7 +48,7 @@ export const PLACES = {
   dorren: { name: 'dörren', poi: 'dörren', re: /dörr|hallen/ },
 };
 // Ordningen spelar roll: "läsfåtöljen" måste testas före "fåtöljen"
-const PLACE_ORDER = ['lasfatoljen', 'fatoljen', 'soffan', 'kylskapet', 'koket', 'matbordet', 'fonstret', 'tv', 'bokhyllan', 'skivspelaren', 'tavlan', 'dorren'];
+const PLACE_ORDER = ['lasfatoljen', 'fatoljen', 'soffbordet', 'soffan', 'golvet', 'kylskapet', 'koket', 'matbordet', 'fonstret', 'tv', 'bokhyllan', 'skivspelaren', 'tavlan', 'dorren'];
 
 // Gester: animationsklipp, om de fungerar sittande, och hur länge loopande klipp spelas
 export const GESTURES = {
@@ -58,7 +65,7 @@ export const GESTURES = {
   fundera: { clip: 'think' },
 };
 
-export const ACTIONS = ['satt_dig', 'res_dig', 'ga_till', 'kom_hit', 'folj_mig', 'sluta_folja', 'stanna', 'lamna_rummet', ...Object.keys(GESTURES)];
+export const ACTIONS = ['satt_dig', 'lagg_dig', 'sitt_pa', 'res_dig', 'ga_till', 'kom_hit', 'folj_mig', 'sluta_folja', 'stanna', 'lamna_rummet', ...Object.keys(GESTURES)];
 
 // Verktyget som Claude får använda för att göra saker i rummet
 export const ACTION_TOOL = {
@@ -72,7 +79,7 @@ export const ACTION_TOOL = {
         type: 'string',
         enum: ACTIONS,
         description:
-          'satt_dig, res_dig (ställ dig upp), ga_till (gå till en plats), kom_hit (gå fram till spelaren), folj_mig (följ efter spelaren), sluta_folja, stanna (stanna där du är), lamna_rummet, eller en gest: vinka, dansa, klappa, jubla, skratta, rycka_pa_axlarna, stracka_pa_sig, gaspa, sitt_pa_huk, ta_foto, fundera',
+          'satt_dig, lagg_dig (lägg dig på golvet, i soffan, på matbordet eller soffbordet; personen går dit, sätter sig på kanten och lägger sig), sitt_pa (sätt dig uppe på matbordet eller soffbordet), res_dig (ställ dig upp, även från golvet eller ett bord), ga_till (gå till en plats), kom_hit (gå fram till spelaren), folj_mig (följ efter spelaren), sluta_folja, stanna (stanna där du är), lamna_rummet, eller en gest: vinka, dansa, klappa, jubla, skratta, rycka_pa_axlarna, stracka_pa_sig, gaspa, sitt_pa_huk, ta_foto, fundera',
       },
       plats: { type: 'string', enum: [...Object.keys(PLACES), 'ingen'] },
     },
@@ -198,6 +205,9 @@ export function parseCommand(raw, others = []) {
     [/\b(tänk efter|fundera)\b/, 'fundera'],
     [/\b(gå|spring|ställ dig|ta dig) (till|vid|bort till|fram till|mot|in i|ut i)\b/, 'ga_till'],
   ];
+  // Lägga sig eller sitta på en möbel ("lägg dig på bordet", "sätt dig på soffbordet")
+  if (/(lägg dig|ligg|lägga dig|vila dig)/.test(t) && place && ['soffan', 'matbordet', 'soffbordet'].includes(place) && !/magen/.test(t)) return { action: 'lagg_dig', place };
+  if (/(sätt dig|sitt|sätta dig|hoppa upp) (uppe )?på (mat|soff)?bordet/.test(t) && ['matbordet', 'soffbordet'].includes(place)) return { action: 'sitt_pa', place };
   // Rörelser som personerna har lärt sig tidigare (skapade av Claude), t.ex. "gör karatesparken"
   for (const [name, def] of Object.entries(savedMotions())) {
     const words = name.replace(/_/g, ' ');
@@ -227,6 +237,8 @@ const YES = {
 
 const DOING = {
   satt_dig: (p, at) => (at ? `Jag sätter mig ${at}.` : 'Jag sätter mig.'),
+  lagg_dig: (p) => (p && p !== 'golvet' ? `Jag lägger mig ${p === 'soffan' ? 'i' : 'på'} ${p}.` : '*lägger sig på golvet*'),
+  sitt_pa: (p) => `*hoppar upp och sätter sig på ${p}*`,
   res_dig: () => 'Jag ställer mig upp.',
   ga_till: (p) => (p ? `Jag går bort till ${p}.` : 'Vart då?'),
   kom_hit: () => 'Jag kommer.',

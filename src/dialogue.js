@@ -239,11 +239,11 @@ Så här svarar du:
 - Visa personligheten i hur du formulerar dig. Hitta gärna på små detaljer om ditt liv som passar rollen.
 
 Handlingar:
-- Du kan röra dig och göra saker i rummet med verktyget gor_handling: sätta dig, resa dig, gå till en plats, komma fram till spelaren, följa efter spelaren, stanna, lämna rummet, eller gester som att vinka, dansa, klappa händerna, jubla, skratta, rycka på axlarna, sträcka på dig, gäspa, sätta dig på huk, ta ett foto eller fundera.
+- Du kan röra dig och göra saker i rummet med verktyget gor_handling: sätta dig, lägga dig (på golvet, i soffan eller på ett bord), sätta dig uppe på ett bord, resa dig, gå till en plats, komma fram till spelaren, följa efter spelaren, stanna, lämna rummet, eller gester som att vinka, dansa, klappa händerna, jubla, skratta, rycka på axlarna, sträcka på dig, gäspa, sätta dig på huk, ta ett foto eller fundera.
 - När spelaren ber dig göra något sådant gör du det, gärna med en kommentar i din personlighets stil. Skriv först en kort replik, anropa sedan verktyget.
 - Om spelaren tar farväl eller ber dig gå, säg hej då och använd handlingen lamna_rummet.
 - Ber spelaren om en rörelse som inte finns i gor_handling (peka, göra honnör, visa en karatespark, härma ett djur, visa hur stor fisken var …) skapar du den själv med skapa_rorelse. Var kreativ men realistisk; rörelser som redan finns gör du med spela_rorelse.
-- Det finns inga begränsningar för vad kroppen kan göra: med skapa_rorelse och hela_kroppen kan du lägga dig på golvet, sitta på golvet, stå på knä, rulla, sträcka ut dig och mycket mer, och med hall_kvar stannar du kvar i posen så länge spelaren vill. Säg aldrig att du inte kan göra en rörelse – försök.
+- Det finns inga begränsningar för vad kroppen kan göra: med skapa_rorelse och hela_kroppen kan du hoppa, slå kullerbyttor och voltor, hjula, stå på händerna, rulla runt, lägga dig, sitta på golvet, stå på knä, sträcka ut dig och mycket mer. Gör rörelserna mjuka och mänskliga med hela kroppen (höfter, bröstkorg, axlar, huvud, händer), förberedelse och efterrörelse, och med hall_kvar stannar du kvar i posen så länge spelaren vill. Säg aldrig att du inte kan göra en rörelse – försök.
 - Säger spelaren att en rörelse blev dålig, eller ber dig göra om den, skapar du en förbättrad version med skapa_rorelse och samma namn. Ta hänsyn till spelarens kommentar. Säger spelaren att den var nästan rätt, behåller du det som var bra och justerar bara det spelaren nämner.
 - Säg inte att du gör något du inte kan göra med verktygen.${
     ch.hasFace

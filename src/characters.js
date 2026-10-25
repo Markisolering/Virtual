@@ -5,7 +5,7 @@ import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { SPAWN } from './room.js';
 import { makePersona } from './persona.js';
 import { GESTURES, PLACES } from './commands.js';
-import { MotionRig, prepareMotion, sampleMotion } from './motion.js';
+import { MotionRig, prepareMotion, sampleMotion, PRESETS, lieOnMotion, sitOnMotion } from './motion.js';
 import { Wardrobe, randomOutfit } from './clothes.js';
 
 export { PERSONALITIES } from './persona.js';
@@ -222,6 +222,18 @@ function rotateBoneWorld(bone, axis, angle) {
 }
 
 // ---------------- Karaktären ----------------
+// Hur snabbt varje led följer rörelsen (Hz). Lägre = mer eftersläpning och mjukare.
+function springFreq(k) {
+  if (/^(hojd|kropp_|snurra|volt|hjulning|rulla|luft)/.test(k)) return 9;
+  if (/(ben|kna|fot|tar)/.test(k)) return 8;
+  if (/_f\d$|fingrar|tumme/.test(k)) return 7;
+  if (/huvud/.test(k)) return 4.5;
+  if (/(handled|underarm)/.test(k)) return 5;
+  if (/brost/.test(k)) return 5.5;
+  if (/(overkropp|hoft)/.test(k)) return 6;
+  return 6.5;
+}
+
 export class Character {
   constructor(id, asset) {
     this.id = id;
@@ -453,7 +465,7 @@ export class Character {
                 this.desiredHeading = Math.atan2(p.x - this.position.x, p.z - this.position.z);
               } else if (this.poi) this.desiredHeading = this.poi.face;
               this.faceTarget = null;
-              if (!this.pendingGesture) this.commandActive = false;
+              if (!this.pendingGesture && !this.afterArrive) this.commandActive = false;
             }
           }
           break;
@@ -537,6 +549,11 @@ export class Character {
         default: {
           if (this.desiredHeading !== undefined) this.faceAngle(this.desiredHeading, dt, 3);
           this.idleLook(dt, world);
+          if (this.afterArrive && Math.abs(angleDiff(this.heading, this.desiredHeading ?? this.heading)) < 0.08) {
+            const def = this.afterArrive;
+            this.afterArrive = null;
+            this.command({ action: 'rorelse', motion: def, name: null, internal: true }, world);
+          }
           if (this.pendingGesture && this.sitAmount < 0.1) {
             const g = this.pendingGesture;
             this.pendingGesture = null;
@@ -571,7 +588,7 @@ export class Character {
       }
     }
 
-    this.animate(dt, moving);
+    this.animate(dt, moving, world);
   }
 
   followPath(dt, world) {
@@ -656,6 +673,7 @@ export class Character {
     this.stopMotion();
     this.editing = true;
     this.editUsed = used;
+    this.editWhole = !!def.hela_kroppen;
     this.path = null;
     if (!this.seated) this.state = 'idle';
     this.holdUntil = Math.max(this.holdUntil, this.age + 120);
@@ -665,7 +683,7 @@ export class Character {
   // Lägg posen på skelettet (används både för att visa den och för att prova varianter)
   applyEditPose(pose = this.editPose) {
     this.root.updateMatrixWorld(true);
-    this.rig.apply(pose || {}, this.editUsed, 1);
+    this.rig.apply(pose || {}, this.editUsed, 1, this.editWhole ? 1 : 0);
   }
 
   endEdit() {
@@ -677,7 +695,7 @@ export class Character {
   // ---------- Egna rörelser ----------
   playMotion(def) {
     const prev = this.motion && this.motion.releaseAt === undefined ? this.motion : null;
-    this.motion = { ...prepareMotion(def, this.rig, prev), t: 0, smoothStart: !!prev };
+    this.motion = { ...prepareMotion(def, this.rig, prev), t: 0, smoothStart: !!prev, spring: prev?.spring || {} };
     this.commandActive = !def.hall_kvar;
     // Stanna kvar i posen länge (tills spelaren ber om något annat)
     if (def.hall_kvar) this.holdUntil = Math.max(this.holdUntil, this.age + 1800);
@@ -694,7 +712,7 @@ export class Character {
     this.rig.reset();
   }
 
-  updateMotion(dt) {
+  updateMotion(dt, world) {
     const m = this.motion;
     if (!m) return;
     m.t += dt;
@@ -710,14 +728,114 @@ export class Character {
     }
     // Rörelser som tar vid från en tidigare pose behöver ingen intoning
     const fadeIn = m.smoothStart ? 1 : Math.min(1, m.t / FADE_IN);
-    const w = Math.max(0, Math.min(fadeIn, m.t < playFor ? 1 : 1 - (m.t - playFor) / FADE_OUT));
+    const raw = Math.max(0, Math.min(fadeIn, m.t < playFor ? 1 : 1 - (m.t - playFor) / FADE_OUT));
+    const w = raw * raw * (3 - 2 * raw);
     const t = Math.min(m.t, playFor);
     const local = m.def.loop && !hold && m.duration > 0 ? t % m.duration : Math.min(t, m.duration);
-    const pose = sampleMotion(m.frames, local);
-    this.rig.apply(pose, m.used, w);
+    // När rörelsen är klar flyttas personen dit kroppen tog vägen (efter en kullerbytta, ett hjul …)
+    if (!m.committed && !m.def.loop && m.t >= m.duration && m.releaseAt === undefined) this.commitMotion(m, world);
+    const target = sampleMotion(m.frames, local);
+    if (m.wholeBody || hold) this.addLife(target, m);
+    const pose = this.springPose(m, target, dt);
+    this.rig.apply(pose, m.used, w, m.wholeBody ? w : 0);
     // Posen som den syns just nu, så att nästa rörelse kan börja härifrån
     m.pose = Object.fromEntries(Object.entries(pose).map(([k, v]) => [k, typeof v === 'number' ? v * w : v]));
     if (m.t >= m.duration && !hold && m.releaseAt === undefined && !m.def.loop) this.commandActive = false;
+  }
+
+  // Lederna följer rörelsen som fjädrar i stället för exakt: de accelererar och bromsar mjukt, och
+  // huvud, händer och fingrar släpar lite efter resten av kroppen, som hos en riktig människa
+  springPose(m, target, dt) {
+    const sp = m.spring;
+    const out = {};
+    const keys = new Set([...Object.keys(target), ...Object.keys(sp)]);
+    for (const k of keys) {
+      const goal = target[k];
+      if (typeof goal === 'string') {
+        out[k] = goal;
+        continue;
+      }
+      let st = sp[k];
+      if (!st) st = sp[k] = { x: m.frames[0]?.[k] ?? goal ?? 0, v: 0 };
+      const g = goal ?? 0;
+      const w0 = 2 * Math.PI * springFreq(k);
+      const zeta = 0.85;
+      // Små delsteg så att fjädern är stabil även när bildfrekvensen är låg
+      const n = Math.max(1, Math.ceil(dt * w0 / 0.25));
+      const h = dt / n;
+      for (let i = 0; i < n; i++) {
+        st.v += (w0 * w0 * (g - st.x) - 2 * zeta * w0 * st.v) * h;
+        st.x += st.v * h;
+      }
+      if (goal === undefined && Math.abs(st.x) < 0.05 && Math.abs(st.v) < 0.05) {
+        delete sp[k];
+        continue;
+      }
+      out[k] = st.x;
+    }
+    return out;
+  }
+
+  // Andning och små rörelser, så att personen inte står som en staty när hen håller en pose
+  addLife(pose, m) {
+    const t = this.age;
+    const seed = this.id * 1.7;
+    const breath = Math.sin(t * 2 * Math.PI * 0.24 + seed);
+    const add = (k, v) => (pose[k] = (pose[k] || 0) + v);
+    add('brost_framat', -1.6 * breath);
+    add('h_axel', 1.2 * breath);
+    add('v_axel', 1.2 * breath);
+    add('huvud_nick', 1.5 * Math.sin(t * 0.37 + seed) + 0.8 * Math.sin(t * 1.13 + seed * 2));
+    add('huvud_vrid', 2.5 * Math.sin(t * 0.29 + seed * 3));
+    if (m.wholeBody && Math.abs(pose.kropp_lutning || 0) < 30 && Math.abs(pose.volt || 0) < 30) {
+      // Står eller sitter: vikten skiftar långsamt mellan benen
+      add('hoft_luta', 1.5 * Math.sin(t * 0.19 + seed));
+      add('overkropp_luta', -0.8 * Math.sin(t * 0.19 + seed));
+    }
+  }
+
+  // Flytta personen dit rörelsen slutar och ta bort förflyttningen ur rörelsen, så att den inte
+  // glider tillbaka när den tonas ut. Hela varv runt (volt 360 osv.) räknas bort på samma sätt.
+  commitMotion(m, world) {
+    m.committed = true;
+    const last = m.frames[m.frames.length - 1];
+    const fwd = (last.kropp_framat || 0) / 100;
+    const side = (last.kropp_sidled || 0) / 100;
+    const turn = last.snurra || 0;
+    const shift = {};
+    for (const k of ['volt', 'hjulning', 'rulla', 'snurra']) {
+      const turns = Math.round((last[k] || 0) / 360);
+      if (turns) shift[k] = turns * 360;
+    }
+    // Förflyttningen görs bara om personen hamnar på golvet där man kan gå
+    const lying = Math.abs(last.kropp_lutning || 0) > 30 || Math.abs(last.volt || 0) % 360 > 30 || (last.hojd || 0) > 25;
+    if ((fwd || side) && !lying && world?.nav) {
+      const sin = Math.sin(this.heading);
+      const cos = Math.cos(this.heading);
+      // Personens höger är -x i modellen, framåt +z
+      const x = this.position.x + sin * fwd - cos * side;
+      const z = this.position.z + cos * fwd + sin * side;
+      if (world.nav.walkable(...world.nav.cellOf(x, z))) {
+        this.position.x = x;
+        this.position.z = z;
+        shift.kropp_framat = last.kropp_framat;
+        shift.kropp_sidled = last.kropp_sidled;
+      }
+    }
+    if (shift.snurra) {
+      this.heading += (shift.snurra * Math.PI) / 180;
+      this.root.rotation.y = this.heading;
+    }
+    if (turn && !shift.snurra && Math.abs(turn) >= 45 && !lying) {
+      // Personen har vänt sig: behåll den nya riktningen
+      shift.snurra = turn;
+      this.heading += (turn * Math.PI) / 180;
+      this.root.rotation.y = this.heading;
+    }
+    if (!Object.keys(shift).length) return;
+    for (const f of m.frames) for (const [k, v] of Object.entries(shift)) if (f[k] !== undefined) f[k] -= v;
+    for (const [k, v] of Object.entries(shift)) if (m.spring[k]) m.spring[k].x -= v;
+    this.desiredHeading = this.heading;
   }
 
   // ---------- Ansikte ----------
@@ -820,7 +938,8 @@ export class Character {
     if (this.gesture) this.endGesture();
     // En ny rörelse tar vid där den förra slutade; "stanna" behåller posen; allt annat tonar ut den mjukt
     const wasPosed = !!this.motion && this.motion.releaseAt === undefined;
-    if (this.motion && !['rorelse', 'stanna', 'sluta_folja', 'byt_klader'].includes(a)) this.stopMotion(true);
+    if (this.motion && !['rorelse', 'stanna', 'sluta_folja', 'byt_klader', 'res_dig'].includes(a)) this.stopMotion(true);
+    if (!cmd.internal) this.afterArrive = null;
     // Något nytt avbryter det personen gör tillsammans med någon annan
     if (this.partner && !cmd.internal) this.partner = null;
     if (a === 'byt_klader') return this.wardrobe.set(cmd.clothes || randomOutfit()) ? { ok: true } : { ok: false, reason: 'noClothes' };
@@ -881,8 +1000,21 @@ export class Character {
         }
         return { ok: true };
       case 'res_dig':
-        // Den som ligger eller sitter på golvet reser sig genom att rörelsen tonas ut
-        if (!this.seated) return wasPosed ? { ok: true } : { ok: false, reason: 'already' };
+        if (!this.seated) {
+          if (!wasPosed) {
+            if (this.motion) this.stopMotion(true);
+            return { ok: false, reason: 'already' };
+          }
+          // Den som ligger, sitter på golvet eller på en möbel reser sig med en riktig rörelse
+          const def = this.motion.def;
+          const p = this.motion.pose || {};
+          const low = (p.hojd || 0) < -25 || ['kropp_lutning', 'kropp_sida', 'volt', 'hjulning'].some((k) => Math.abs(p[k] || 0) > 30);
+          if (def.resa_sig) this.playMotion({ beskrivning: 'reser sig', hela_kroppen: true, nyckelbilder: def.resa_sig });
+          else if (low) this.playMotion(PRESETS.resa_sig);
+          else this.stopMotion(true);
+          this.holdUntil = this.age + HOLD_TIME;
+          return { ok: true };
+        }
         this.holdUntil = this.age + HOLD_TIME;
         this.state = 'standingUp';
         this.commandActive = true;
@@ -938,6 +1070,24 @@ export class Character {
         this.faceTarget = 'player';
         this.state = 'toPoi';
         this.commandActive = true;
+        return { ok: true };
+      }
+      case 'lagg_dig':
+      case 'sitt_pa': {
+        const bed = cmd.place && world.beds?.find((b) => b.label === cmd.place);
+        if (!bed) {
+          if (a === 'sitt_pa') return { ok: false, reason: 'noSeat' };
+          return this.command({ action: 'rorelse', motion: PRESETS.ligga_pa_rygg, name: 'ligga_pa_rygg', internal: true }, world);
+        }
+        if (!this.setPath(nav, bed.x, bed.z)) return { ok: false, reason: 'noPath' };
+        this.poi = { x: bed.x, z: bed.z, face: bed.face, label: bed.label };
+        this.following = false;
+        this.state = 'toPoi';
+        this.faceTarget = null;
+        this.holdUntil = this.age + HOLD_TIME;
+        this.commandActive = true;
+        // Väl framme: vänd ryggen mot möbeln och gör rörelsen
+        this.afterArrive = a === 'lagg_dig' ? lieOnMotion(bed) : sitOnMotion(bed);
         return { ok: true };
       }
       case 'rorelse': {
@@ -1021,7 +1171,7 @@ export class Character {
     }
   }
 
-  animate(dt, moving) {
+  animate(dt, moving, world) {
     this.chooseClip(dt, moving);
     const b = this.bones;
     if (b.jaw) b.jaw.quaternion.copy(this.rest.jaw);
@@ -1029,7 +1179,7 @@ export class Character {
     b.eyes.forEach((e, i) => e.quaternion.copy(this.rest.eyes[i]));
     this.mixer.update(dt);
     this.root.updateMatrixWorld(true);
-    this.updateMotion(dt);
+    this.updateMotion(dt, world);
 
     // Huvud och nacke vänds mot det personen tittar på. Korrigeringen räknas från huvudets
     // faktiska riktning i animationen, så att personen får riktig ögonkontakt.

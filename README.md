@@ -77,13 +77,23 @@ Med AI-samtal påslaget kan personerna göra i princip vilken kroppsrörelse du 
 
 Vinklarna utgår från en neutral stående pose och personens egna riktningar ("lyft armen framåt 90" betyder samma sak för alla modeller), så Claude behöver inte känna till skelettet.
 
-Varje skapad rörelse sparas i webbläsaren. Personerna kan sedan göra den igen, även utan AI: skriv till exempel "gör honnör". Det finns också färdiga rörelser som fungerar utan AI: *peka*, *tumme upp*, *buga*, *nicka*, *skaka på huvudet*, *armarna i kors*, *händerna på höfterna*, *hoppa*, *snurra*, *visa musklerna* och *fredstecken*.
+Varje skapad rörelse sparas i webbläsaren. Personerna kan sedan göra den igen, även utan AI: skriv till exempel "gör honnör". Det finns också färdiga rörelser som fungerar utan AI: *peka*, *tumme upp*, *buga*, *nicka*, *skaka på huvudet*, *armarna i kors*, *händerna på höfterna*, *snurra*, *visa musklerna*, *fredstecken* och akrobatiken nedan.
 
 ### Hela kroppen och poser som håller
 
-AI:n är inte begränsad till de inspelade animationerna. Med `hela_kroppen` styr den hela skelettet fritt, och med `kropp_lutning`, `kropp_sida`, `hojd`, `kropp_framat` och `kropp_sidled` kan hela kroppen luta, ligga ner och flyttas. Därmed kan personen lägga sig på rygg eller mage, sitta på golvet, stå på knä, rulla och så vidare. Det finns också leder för axlar (`axel`) och fotleder (`fot`). Med `hall_kvar` stannar personen i posen tills du ber om något annat. Nästa rörelse börjar mjukt från den posen, så "vinka" fungerar även liggande och "res dig" tar personen upp igen.
+AI:n är inte begränsad till de inspelade animationerna. Med `hela_kroppen` styr den hela skelettet fritt. `kropp_lutning`, `kropp_sida`, `hojd`, `kropp_framat` och `kropp_sidled` lutar och flyttar hela kroppen runt fötterna. `volt`, `hjulning` och `rulla` roterar den runt höften. Med `hall_kvar` stannar personen i posen tills du ber om något annat, och nästa rörelse börjar mjukt därifrån.
 
-Färdiga poser som fungerar utan AI: *lägg dig*, *lägg dig på magen*, *sätt dig på golvet*, *ställ dig på knä*.
+### Naturliga rörelser
+
+- **Många leder:** utöver huvud, överkropp, armar, armbågar, handleder, ben, knän, axlar och fotleder finns höften (`hoft_framat/vrid/luta`), bröstkorgen (`brost_framat/vrid/luta`), skulderbladen (`axel_framat`), underarmsvridning (`underarm_vrid`), handleden åt sidan (`handled_sida`), benvridning (`ben_vrid`), fotleden åt sidan (`fot_sida`), tårna (`tar`), fingrarna (`fingrar`) och tummen (`tumme`).
+- **Mjuka kurvor:** en kubisk kurva går genom nyckelbilderna, så farten ändras jämnt i stället för att stanna i varje bild, och handformerna glider över i varandra.
+- **Fjädrande leder:** varje led följer rörelsen som en fjäder. Kroppen accelererar och bromsar mjukt, och huvud, händer och fingrar släpar lite efter, som hos en människa.
+- **Liv i poser:** den som håller en pose andas, flyttar vikten mellan benen och rör huvudet lite.
+- **Kontakt med golv och möbler:** ingen del av kroppen går igenom golvet, bord, stolar eller soffan. Den som sitter, ligger, står på knä eller på händerna vilar mot underlaget. Med `luft` lämnar kroppen marken (hopp och voltor).
+- **Förflyttning:** slutar en rörelse på ett annat ställe (kullerbytta, hjulning) står personen kvar där efteråt.
+- **Resa sig:** "res dig" från golvet eller en möbel spelar en riktig rörelse: sätta sig upp, gå upp på huk och ställa sig.
+
+Färdiga rörelser som fungerar utan AI: *hoppa*, *slå en kullerbytta*, *bakåtvolt*, *hjula*, *stå på händerna*, *rulla runt*, *lägg dig*, *lägg dig på magen*, *sätt dig på golvet*, *ställ dig på knä*, *lägg dig på bordet / soffbordet / i soffan*, *sätt dig på bordet / soffbordet* och *res dig*.
 
 ### Betyg och inlärning
 

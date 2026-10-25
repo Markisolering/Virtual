@@ -13,7 +13,7 @@ import { rateMotion, updateLessons, motionLessons, learnedCount, resetLearning, 
 import { PoseEditor } from './editor.js';
 import { Interactions } from './interact.js';
 import { parseCommand, commandReply } from './commands.js';
-import { PRESETS, findMotion, motionTitle } from './motion.js';
+import { PRESETS, findMotion, motionTitle, setSupport } from './motion.js';
 import { voice } from './voice.js';
 
 const $ = (id) => document.getElementById(id);
@@ -124,7 +124,8 @@ const input = { joy: new THREE.Vector2(), keys: new Set() };
 const characters = [];
 let nextId = 1;
 const interactions = new Interactions({ camera });
-const simWorld = { nav, seats: world.seats, pois: world.pois, player, characters, interactions };
+const simWorld = { nav, seats: world.seats, pois: world.pois, beds: world.beds, player, characters, interactions };
+setSupport(world.supportAt);
 
 async function addCharacter(entry) {
   const asset = await library.create(entry);
