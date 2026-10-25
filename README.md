@@ -79,9 +79,15 @@ Vinklarna utgår från en neutral stående pose och personens egna riktningar ("
 
 Varje skapad rörelse sparas i webbläsaren. Personerna kan sedan göra den igen, även utan AI: skriv till exempel "gör honnör". Det finns också färdiga rörelser som fungerar utan AI: *peka*, *tumme upp*, *buga*, *nicka*, *skaka på huvudet*, *armarna i kors*, *händerna på höfterna*, *hoppa*, *snurra*, *visa musklerna* och *fredstecken*.
 
+### Hela kroppen och poser som håller
+
+AI:n är inte begränsad till de inspelade animationerna. Med `hela_kroppen` styr den hela skelettet fritt, och med `kropp_lutning`, `kropp_sida`, `hojd`, `kropp_framat` och `kropp_sidled` kan hela kroppen luta, ligga ner och flyttas. Därmed kan personen lägga sig på rygg eller mage, sitta på golvet, stå på knä, rulla och så vidare. Det finns också leder för axlar (`axel`) och fotleder (`fot`). Med `hall_kvar` stannar personen i posen tills du ber om något annat. Nästa rörelse börjar mjukt från den posen, så "vinka" fungerar även liggande och "res dig" tar personen upp igen.
+
+Färdiga poser som fungerar utan AI: *lägg dig*, *lägg dig på magen*, *sätt dig på golvet*, *ställ dig på knä*.
+
 ### Betyg och inlärning
 
-Efter varje rörelse visas ett betygskort i chatten: 👍 eller 👎. Vid 👎 väljer du vad som var fel (fel position, för snabb, för långsam, för stel, helt fel rörelse, eller skriv själv), och med AI-samtal gör personen genast om rörelsen med din kommentar i åtanke.
+Efter varje rörelse visas ett betygskort: 👍 (bra), ↗️ **Nästan** (inte bra, men åt rätt håll), 👎 (dålig) och 🔁 **Igen** (gör rörelsen en gång till direkt). Vid ↗️ väljer du vad som ska justeras (mer, mindre, snabbare, långsammare, håll posen längre) och vid 👎 vad som var fel, eller skriver/säger det själv. Med AI-samtal gör personen genast om rörelsen: vid ↗️ justeras bara det du nämnde.
 
 Betygen lär spelet att göra bättre rörelser (`src/learning.js`):
 

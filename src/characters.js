@@ -423,7 +423,8 @@ export class Character {
 
     if (this.talking && !this.commandActive && !this.following) {
       this.lookTarget = player.headPos;
-      if (this.state !== 'sitting' && this.state !== 'sittingDown') this.faceTowards(player.position.x, player.position.z, dt, 4);
+      // Den som ligger på golvet eller gör en helkroppsrörelse vrider sig inte mot spelaren
+      if (this.state !== 'sitting' && this.state !== 'sittingDown' && !this.motion?.wholeBody) this.faceTowards(player.position.x, player.position.z, dt, 4);
     } else {
       switch (this.state) {
         case 'toSeat':
@@ -641,14 +642,22 @@ export class Character {
 
   // ---------- Egna rörelser ----------
   playMotion(def) {
-    this.motion = { ...prepareMotion(def, this.rig), t: 0 };
-    this.commandActive = true;
+    const prev = this.motion && this.motion.releaseAt === undefined ? this.motion : null;
+    this.motion = { ...prepareMotion(def, this.rig, prev), t: 0, smoothStart: !!prev };
+    this.commandActive = !def.hall_kvar;
+    // Stanna kvar i posen länge (tills spelaren ber om något annat)
+    if (def.hall_kvar) this.holdUntil = Math.max(this.holdUntil, this.age + 1800);
   }
 
-  stopMotion() {
+  // soft = tona tillbaka till den vanliga animationen i stället för att hoppa direkt
+  stopMotion(soft = false) {
+    this.commandActive = false;
+    if (soft && this.motion) {
+      if (this.motion.releaseAt === undefined) this.motion.releaseAt = this.motion.t;
+      return;
+    }
     this.motion = null;
     this.rig.reset();
-    this.commandActive = false;
   }
 
   updateMotion(dt) {
@@ -656,16 +665,25 @@ export class Character {
     if (!m) return;
     m.t += dt;
     const FADE_IN = 0.3;
-    const FADE_OUT = 0.45;
-    // Loopande rörelser upprepas i minst 6 sekunder (högst tre varv)
-    const playFor = m.def.loop ? Math.max(m.duration, Math.min(m.duration * 3, 6)) : m.duration;
+    const FADE_OUT = m.wholeBody ? 0.9 : 0.45;
+    const hold = m.def.hall_kvar && m.releaseAt === undefined;
+    // Loopande rörelser upprepas i minst 6 sekunder (högst tre varv); hall_kvar stannar i sista posen
+    const playFor = m.releaseAt ?? (hold ? Infinity : m.def.loop ? Math.max(m.duration, Math.min(m.duration * 3, 6)) : m.duration);
     if (m.t > playFor + FADE_OUT) {
       this.stopMotion();
+      if (!this.pendingGesture && !this.gesture) this.commandActive = false;
       return;
     }
-    const w = Math.min(1, m.t / FADE_IN, m.t < playFor ? 1 : 1 - (m.t - playFor) / FADE_OUT);
-    const local = m.def.loop && m.duration > 0 ? Math.min(m.t, playFor) % m.duration : Math.min(m.t, m.duration);
-    this.rig.apply(sampleMotion(m.frames, local), m.used, Math.max(0, w));
+    // Rörelser som tar vid från en tidigare pose behöver ingen intoning
+    const fadeIn = m.smoothStart ? 1 : Math.min(1, m.t / FADE_IN);
+    const w = Math.max(0, Math.min(fadeIn, m.t < playFor ? 1 : 1 - (m.t - playFor) / FADE_OUT));
+    const t = Math.min(m.t, playFor);
+    const local = m.def.loop && !hold && m.duration > 0 ? t % m.duration : Math.min(t, m.duration);
+    const pose = sampleMotion(m.frames, local);
+    this.rig.apply(pose, m.used, w);
+    // Posen som den syns just nu, så att nästa rörelse kan börja härifrån
+    m.pose = Object.fromEntries(Object.entries(pose).map(([k, v]) => [k, typeof v === 'number' ? v * w : v]));
+    if (m.t >= m.duration && !hold && m.releaseAt === undefined && !m.def.loop) this.commandActive = false;
   }
 
   // ---------- Ansikte ----------
@@ -766,7 +784,9 @@ export class Character {
     const gesture = GESTURES[a];
     this.pendingGesture = null;
     if (this.gesture) this.endGesture();
-    if (this.motion) this.stopMotion();
+    // En ny rörelse tar vid där den förra slutade; "stanna" behåller posen; allt annat tonar ut den mjukt
+    const wasPosed = !!this.motion && this.motion.releaseAt === undefined;
+    if (this.motion && !['rorelse', 'stanna', 'sluta_folja'].includes(a)) this.stopMotion(true);
     // Avbryt en pågående väg till en stol
     if (this.state === 'toSeat' && this.seat) {
       if (this.seat.occupant === this) this.seat.occupant = null;
@@ -810,7 +830,7 @@ export class Character {
       case 'sluta_folja':
       case 'stanna':
         this.following = false;
-        this.holdUntil = this.age + HOLD_TIME;
+        this.holdUntil = Math.max(this.holdUntil, this.age + HOLD_TIME);
         this.commandActive = false;
         if (!this.seated) {
           this.path = null;
@@ -819,7 +839,8 @@ export class Character {
         }
         return { ok: true };
       case 'res_dig':
-        if (!this.seated) return { ok: false, reason: 'already' };
+        // Den som ligger eller sitter på golvet reser sig genom att rörelsen tonas ut
+        if (!this.seated) return wasPosed ? { ok: true } : { ok: false, reason: 'already' };
         this.holdUntil = this.age + HOLD_TIME;
         this.state = 'standingUp';
         this.commandActive = true;
@@ -925,7 +946,7 @@ export class Character {
     this.sitAmount += ((seated ? 1 : 0) - this.sitAmount) * Math.min(1, dt * 2.5);
     this.walkAmount += ((moving ? 1 : 0) - this.walkAmount) * Math.min(1, dt * 6);
     this.clipTimer -= dt;
-    if (moving && this.motion?.def.hela_kroppen) this.stopMotion();
+    if (moving && this.motion?.wholeBody) this.stopMotion(true);
     if (this.gesture) {
       if (moving || this.age > this.gesture.until) this.endGesture();
       else return;
@@ -981,7 +1002,7 @@ export class Character {
         Math.atan2(_v2.y, Math.hypot(_v2.x, _v2.z)) - Math.asin(Math.max(-1, Math.min(1, fwd.y))),
       ];
     };
-    if (this.lookTarget && b.head && !this.motion?.usesHead) {
+    if (this.lookTarget && b.head && !this.motion?.usesHead && !this.motion?.wholeBody) {
       const toTarget = Math.atan2(this.lookTarget.x - this.position.x, this.lookTarget.z - this.position.z);
       // Mål bakom ryggen ignoreras; då vrider man hellre hela kroppen
       if (Math.abs(angleDiff(this.heading, toTarget)) < 1.6) [yaw, pitch] = aim(b.head, this.headForward);
