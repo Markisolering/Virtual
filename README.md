@@ -8,6 +8,7 @@ Spelet är en installerbar webbapp (PWA). När det är publicerat finns det på:
 
 **https://markisolering.github.io/Virtual/**
 
+- **Android-app (APK):** ladda ner den senaste versionen här: **https://github.com/Markisolering/Virtual/releases/latest/download/Vardagsrummet.apk**, öppna filen och tillåt installation från webbläsaren när telefonen frågar. Appen startar i helskärm och visar en banner när en ny APK finns.
 - **iPhone (Safari):** öppna adressen, tryck på Dela och välj *Lägg till på hemskärmen*.
 - **Android (Chrome):** öppna adressen och tryck på *Installera som app* på startskärmen (eller i menyn ⋮ → *Installera app*).
 
@@ -17,6 +18,12 @@ Appen öppnas sedan i helskärm från en egen ikon och fungerar även offline ef
 
 1. **Settings → Pages → Build and deployment → Source:** välj *GitHub Actions*.
 2. Slå ihop koden till grenen `main`. Arbetsflödet `.github/workflows/deploy.yml` bygger och publicerar då spelet automatiskt vid varje ändring.
+
+### Android-appen
+
+Appen är ett tunt skal byggt med [Capacitor](https://capacitorjs.com) (mappen `android/`) som öppnar spelet från GitHub Pages i helskärm. Spelets innehåll uppdateras därför på samma sätt som webbappen, utan att APK:n behöver bytas. APK:n byggs av `.github/workflows/android.yml` och publiceras under *Releases* när något i `android/`, `capacitor.config.json` eller beroendena ändras på `main`.
+
+Engångsinställning: lägg till hemligheten **KEYSTORE_PASSWORD** under *Settings → Secrets and variables → Actions* (ett långt lösenord som du hittar på själv). Första bygget skapar då signeringsnyckeln och sparar den krypterad i repot. Samma nyckel används sedan för alla versioner, så att nya APK:er kan installeras över de gamla.
 
 ### Uppdateringar
 

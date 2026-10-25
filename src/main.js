@@ -527,7 +527,7 @@ startBtn.addEventListener('click', async () => {
   $('start').hidden = true;
   $('hud').hidden = false;
   started = true;
-  if (isTouch && document.documentElement.requestFullscreen) {
+  if (isTouch && !androidApp && document.documentElement.requestFullscreen) {
     try {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
     } catch {
@@ -618,6 +618,10 @@ $('update-btn').addEventListener('click', () => {
 
 $('check-update').addEventListener('click', async () => {
   const btn = $('check-update');
+  if (await checkApkUpdate()) {
+    toast('En ny version av Android-appen finns.');
+    return;
+  }
   if (!swReg) {
     toast('Uppdateringar fungerar i den installerade appen.');
     return;
@@ -655,7 +659,39 @@ $('install-btn').addEventListener('click', async () => {
   $('install-btn').hidden = true;
 });
 addEventListener('appinstalled', () => ($('install-btn').hidden = true));
-if (!standalone && /iphone|ipad|ipod/i.test(navigator.userAgent)) $('install-ios').hidden = false;
+// Android-appen (Capacitor) lägger till "VardagsrummetApp/<byggnummer>" i webbläsarens user agent
+const androidApp = navigator.userAgent.match(/VardagsrummetApp\/(\d+)/);
+const appBuild = androidApp ? Number(androidApp[1]) : 0;
+if (!standalone && !androidApp && /iphone|ipad|ipod/i.test(navigator.userAgent)) $('install-ios').hidden = false;
+if (androidApp) {
+  $('install-btn').remove();
+  $('app-version').textContent += ` · Android-app ${appBuild}`;
+}
+
+// Själva Android-appen ändras sällan (spelet hämtas från webben), men när en ny APK har
+// publicerats under GitHub Releases visas en banner med en länk för att ladda ner den.
+const RELEASES = 'https://api.github.com/repos/Markisolering/Virtual/releases/latest';
+const APK_URL = 'https://github.com/Markisolering/Virtual/releases/latest/download/Vardagsrummet.apk';
+async function checkApkUpdate() {
+  if (!androidApp) return false;
+  try {
+    const res = await fetch(RELEASES, { headers: { Accept: 'application/vnd.github+json' } });
+    if (!res.ok) return false;
+    const latest = Number((await res.json()).tag_name?.match(/^app-(\d+)$/)?.[1] || 0);
+    if (latest > appBuild) {
+      $('apk-banner').hidden = false;
+      return true;
+    }
+  } catch {
+    // Offline eller GitHub svarar inte: försök igen nästa gång
+  }
+  return false;
+}
+$('apk-btn').addEventListener('click', () => {
+  // Länkar till andra webbplatser öppnas i webbläsaren, som laddar ner och installerar APK:n
+  location.href = APK_URL;
+});
+checkApkUpdate();
 
 // ---------------- Huvudloop ----------------
 const timer = new THREE.Timer();
