@@ -49,6 +49,10 @@
           <li><b>Mobil:</b> vänster tumme går, höger tumme tittar. Tryck på en person för att prata.</li>
           <li><b>Dator:</b> WASD för att gå, dra med musen för att titta, <kbd>E</kbd> för att prata.</li>
         </ul>
+        <div id="mode-pick" class="segmented" role="group" aria-label="Läge">
+          <button type="button" data-mode="room"><b>Rummet</b><span>Flera personer kommer och går</span></button>
+          <button type="button" data-mode="closeup"><b>Närbild</b><span>1–2 personer, mer detaljer och ansiktsuttryck</span></button>
+        </div>
         <button id="start-btn" class="primary">Gå in</button>
         <button id="install-btn" class="secondary" hidden>Installera som app</button>
         <p id="install-ios" class="note center" hidden>Installera som app: tryck på <b>Dela</b> <span aria-hidden="true">⎋</span> och välj <b>Lägg till på hemskärmen</b>.</p>
@@ -66,6 +70,12 @@
             <option value="low">Låg (snabbast)</option>
             <option value="medium">Mellan</option>
             <option value="high">Hög (skuggor, AO och glöd)</option>
+          </select>
+        </label>
+        <label>Läge
+          <select id="set-mode">
+            <option value="room">Rummet: flera personer</option>
+            <option value="closeup">Närbild: 1–2 personer i högre detalj</option>
           </select>
         </label>
         <label>Personer i rummet

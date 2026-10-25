@@ -71,6 +71,16 @@ Skriv vad du vill att personen ska göra, eller använd snabbknapparna i chatten
 
 Personerna svarar i sin egen stil; en grinig person suckar men gör det ändå. Med AI-samtal påslaget förstår de friare formuleringar ("orkar du inte sätta dig en stund?") eftersom Claude själv väljer handling via verktyget `gor_handling`.
 
+## Närbildsläge
+
+Välj **Närbild** på startskärmen (eller under ⚙︎ Inställningar → Läge). Då är det bara en eller två personer i rummet åt gången, och de visas i högre detalj:
+
+- **Modeller:** detaljerade versioner med dubbelt så skarpa texturer (`public/avatars-hq/`, ca 2,4 MB per person) och 40 ansiktsuttryck från Rocketbox.
+- **Läppsynk:** munnen formar ljuden i det personen säger (Oculus-visem, utifrån en enkel svensk uttalsmodell).
+- **Ansiktsuttryck:** glad, skrattar, ledsen, arg, förvånad, fundersam och trött. De styrs av samtalet, av gester och, med AI-samtal, av Claude via verktyget `visa_kansla`.
+- **Blick:** ögonen och huvudet söker ögonkontakt med dig, och ögonen gör små naturliga ryck. Blickstyrningen gäller även i det vanliga läget.
+- **Ljus och bild:** ett mjukt porträttljus följer den du pratar med, och grafiken körs på högsta kvalitet (sänks automatiskt om telefonen inte hinner med).
+
 ## Vilka som syns
 
 Under ⚙︎ Inställningar → **Personer i rummet** väljer du *Alla*, *Bara kvinnor* eller *Bara män*. Byter du går de som inte passar ut ur rummet, och nya personer som kommer in följer valet.

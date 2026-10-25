@@ -15,9 +15,15 @@ const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
 
 // ---------------- Inställningar och kvalitet ----------------
-let settings = { quality: 'auto', show: 'all', ...loadSettings() };
+let settings = { quality: 'auto', show: 'all', mode: 'room', ...loadSettings() };
 library.filter = settings.show;
-const resolveQuality = (q) => (q === 'auto' ? (isTouch ? 'medium' : 'high') : q);
+// Närbild: en eller två personer åt gången, detaljerade modeller med ansiktsuttryck och högsta grafikkvalitet
+const closeup = settings.mode === 'closeup';
+if (closeup) {
+  library.dir = 'avatars-hq';
+  library.initialCount = 1;
+}
+const resolveQuality = (q) => (q === 'auto' ? (closeup || !isTouch ? 'high' : 'medium') : q);
 let quality = resolveQuality(settings.quality);
 
 // ---------------- Renderare ----------------
@@ -158,7 +164,45 @@ async function spawnAtDoor() {
 }
 
 let spawnTimer = 6;
-let targetCount = 4;
+const randomTarget = () => (closeup ? 1 + (Math.random() < 0.5 ? 1 : 0) : 2 + Math.floor(Math.random() * 4));
+let targetCount = closeup ? 2 : 4;
+
+// ---------------- Porträttljus (närbild) ----------------
+// Ett mjukt strålkastarljus snett framifrån som följer den man tittar på eller pratar med,
+// så att ansiktet får form och skuggor.
+const keyLight = new THREE.SpotLight('#fff1e2', 0, 8, 0.42, 0.9, 2);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.shadow.bias = -0.0002;
+keyLight.shadow.normalBias = 0.01;
+keyLight.shadow.radius = 3;
+keyLight.visible = closeup;
+scene.add(keyLight, keyLight.target);
+const keyPos = new THREE.Vector3();
+
+function updateKeyLight(dt) {
+  if (!closeup) return;
+  let subject = chatWith || focused;
+  if (!subject) {
+    let best = 4.5;
+    for (const c of characters) {
+      const d = Math.hypot(c.position.x - player.position.x, c.position.z - player.position.z);
+      if (d < best) {
+        best = d;
+        subject = c;
+      }
+    }
+  }
+  keyLight.intensity += ((subject ? 14 : 0) - keyLight.intensity) * Math.min(1, dt * 3);
+  if (!subject) return;
+  const head = subject.headWorld();
+  const toPlayer = new THREE.Vector3(player.position.x - head.x, 0, player.position.z - head.z).normalize();
+  const side = new THREE.Vector3(-toPlayer.z, 0, toPlayer.x);
+  keyPos.copy(head).addScaledVector(toPlayer, 1.3).addScaledVector(side, 0.8).add(new THREE.Vector3(0, 0.75, 0));
+  keyPos.y = Math.min(keyPos.y, ROOM.height - 0.15);
+  keyLight.position.lerp(keyPos, Math.min(1, dt * 4));
+  keyLight.target.position.lerp(head, Math.min(1, dt * 6));
+}
 
 // ---------------- Dörren ----------------
 let doorAngle = 0;
@@ -259,14 +303,18 @@ function tapAt(x, y) {
 
 function updatePlayer(dt) {
   if (chatOpen && chatWith) {
-    // Vänd blicken mot den man pratar med; lämna plats för chattpanelen
+    // Vänd blicken mot den man pratar med och placera ansiktet mitt i den del av skärmen som chatten inte täcker
     const h = chatWith.headWorld();
     const dx = h.x - player.position.x;
     const dz = h.z - player.position.z;
     const dy = h.y - EYE;
     const landscapePanel = innerWidth > innerHeight && innerHeight <= 520;
-    const wantYaw = Math.atan2(-dx, -dz) + (landscapePanel ? -0.32 : 0);
-    const wantPitch = Math.atan2(dy, Math.hypot(dx, dz)) - (landscapePanel ? 0 : 0.2);
+    const vfov = THREE.MathUtils.degToRad(camera.fov) / camera.zoom;
+    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
+    // Liggande: chatten ligger till höger, så ansiktet hamnar i mitten av vänstra delen.
+    // Stående: chatten täcker nedre ~58 %, så ansiktet hamnar i mitten av övre delen.
+    const wantYaw = Math.atan2(-dx, -dz) + (landscapePanel ? -0.24 * hfov : 0);
+    const wantPitch = Math.atan2(dy, Math.hypot(dx, dz)) - (landscapePanel ? 0 : 0.27 * vfov);
     player.yaw += angleDiff(player.yaw, wantYaw) * Math.min(1, dt * 4);
     player.pitch += (wantPitch - player.pitch) * Math.min(1, dt * 4);
     return;
@@ -307,6 +355,14 @@ function updatePlayer(dt) {
   const moving = Math.min(1, Math.hypot(vx, vz) / 2);
   player.bob += dt * 9 * moving;
   player.bobAmt = (player.bobAmt || 0) + (moving - (player.bobAmt || 0)) * Math.min(1, dt * 6);
+}
+
+// I närbildsläget zoomar kameran in mot ansiktet under samtal
+function updateZoom(dt) {
+  const target = closeup && chatOpen && chatWith ? Math.min(2.2, Math.max(1, Math.hypot(chatWith.position.x - player.position.x, chatWith.position.z - player.position.z) * 1.4)) : 1;
+  if (Math.abs(camera.zoom - target) < 0.002) return;
+  camera.zoom += (target - camera.zoom) * Math.min(1, dt * 3);
+  camera.updateProjectionMatrix();
 }
 
 function updateCamera() {
@@ -400,7 +456,9 @@ function openChat(c) {
   }
   c.transcript ||= [];
   if (!c.memory.met) c.wave();
-  const greet = offline.reply(c, 'hej', simWorld).text;
+  const hello = offline.reply(c, 'hej', simWorld);
+  const greet = hello.text;
+  if (hello.emotion) c.setExpression(hello.emotion, 3);
   c.greeting = greet;
   say(c, greet);
   const quick = $('chat-quick');
@@ -423,7 +481,7 @@ function say(c, text, el) {
   if (el) el.textContent = text;
   else addMsg(text, 'them');
   c.transcript.push([text, 'them']);
-  c.speaking = Math.min(6, 0.6 + text.length * 0.055);
+  c.speakText(text);
 }
 
 function closeChat() {
@@ -461,10 +519,12 @@ async function send(text) {
         (partial) => {
           bubble.classList.remove('typing');
           bubble.textContent = partial;
+          c.speech = null;
           c.speaking = 1.2;
           log.scrollTop = log.scrollHeight;
         },
         execute,
+        (emotion) => c.setExpression(emotion, 5),
       );
     } catch (err) {
       console.error(err);
@@ -481,6 +541,7 @@ async function send(text) {
       result = { text: commandReply(c.persona, cmd, res), outcomes: [{ cmd, res }] };
     } else {
       result = { ...offline.reply(c, text, simWorld), outcomes: [] };
+      if (result.emotion) c.setExpression(result.emotion, 4);
     }
   }
   bubble.classList.remove('typing');
@@ -548,6 +609,16 @@ function toast(text) {
 // ---------------- Start och inställningar ----------------
 let started = false;
 const startBtn = $('start-btn');
+// Lägesväljare på startskärmen
+for (const b of document.querySelectorAll('#mode-pick button')) {
+  b.classList.toggle('on', b.dataset.mode === (settings.mode || 'room'));
+  b.addEventListener('click', () => {
+    if (b.dataset.mode === settings.mode) return;
+    settings.mode = b.dataset.mode;
+    saveSettings(settings);
+    location.reload();
+  });
+}
 startBtn.disabled = true;
 startBtn.textContent = 'Laddar personer…';
 library
@@ -583,6 +654,7 @@ startBtn.addEventListener('click', async () => {
 function openSettings() {
   $('set-quality').value = settings.quality || 'auto';
   $('set-show').value = settings.show || 'all';
+  $('set-mode').value = settings.mode || 'room';
   $('set-key').value = settings.apiKey || '';
   $('set-model').value = settings.model || DEFAULT_MODEL;
   $('settings').hidden = false;
@@ -595,13 +667,20 @@ $('settings-btn').addEventListener('click', () => {
 $('set-cancel').addEventListener('click', () => ($('settings').hidden = true));
 $('set-save').addEventListener('click', () => {
   const prevShow = settings.show;
+  const prevMode = settings.mode;
   settings = {
+    mode: $('set-mode').value,
     quality: $('set-quality').value,
     show: $('set-show').value,
     apiKey: $('set-key').value.trim(),
     model: $('set-model').value,
   };
   saveSettings(settings);
+  // Läget avgör vilka modeller som laddas, så appen startas om
+  if (settings.mode !== prevMode) {
+    location.reload();
+    return;
+  }
   const q = resolveQuality(settings.quality);
   if (q !== quality) {
     quality = q;
@@ -756,7 +835,7 @@ function frame(now) {
   spawnTimer -= dt;
   if (spawnTimer <= 0) {
     spawnTimer = 8 + Math.random() * 14;
-    if (Math.random() < 0.3) targetCount = 2 + Math.floor(Math.random() * 4);
+    if (Math.random() < 0.3) targetCount = randomTarget();
     const doorBusy = characters.some((c) => c.position.x < -4 && c.state !== 'leaving');
     if (library.list && characters.length < targetCount && !doorBusy) spawnAtDoor();
   }
@@ -777,8 +856,10 @@ function frame(now) {
   }
 
   updatePlayer(dt);
+  updateZoom(dt);
   updateCamera();
   updateDoor(dt);
+  updateKeyLight(dt);
   scene.userData.clock?.userData.update();
   if (started) updateFocus();
 

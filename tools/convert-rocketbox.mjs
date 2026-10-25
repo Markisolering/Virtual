@@ -27,6 +27,7 @@ const TMP = join(here, '.tmp');
 const FBX2GLTF = join(here, 'node_modules', 'fbx2gltf', 'bin', process.platform === 'darwin' ? 'Darwin' : 'Linux', 'FBX2glTF');
 mkdirSync(TMP, { recursive: true });
 mkdirSync(join(OUT, 'avatars'), { recursive: true });
+mkdirSync(join(OUT, 'avatars-hq'), { recursive: true });
 mkdirSync(join(OUT, 'anims'), { recursive: true });
 
 await MeshoptEncoder.ready;
@@ -41,10 +42,38 @@ const fbx2gltf = (src, dstNoExt) => execFileSync(FBX2GLTF, ['--binary', '-i', sr
 const tex = (kind, src, dst, size) => execFileSync('python3', [join(here, 'textures.py'), kind, src, dst, String(size)]);
 
 // ---------------- Avatarer ----------------
-async function convertAvatar(name) {
+// Ansiktsuttryck som behålls i närbildsversionen (av 175 i Rocketbox): munformer för läppsynk
+// (Oculus-visem) och ett urval av ARKit-uttrycken för blinkningar, leenden, ögonbryn m.m.
+const KEEP_MORPHS = [
+  /^AA_VI_\d+_/,
+  /^AK_(01|02|03|04|05)_Brow/,
+  /^AK_(07|08)_CheekSquint/,
+  /^AK_(09|10)_EyeBlink/,
+  /^AK_(19|20)_EyeSquint/,
+  /^AK_(21|22)_EyeWide/,
+  /^AK_25_JawOpen/,
+  /^AK_(28|29)_MouthDimple/,
+  /^AK_(30|31)_MouthFrown/,
+  /^AK_(36|37)_MouthPress/,
+  /^AK_38_MouthPucker/,
+  /^AK_(44|45)_MouthSmile/,
+  /^AK_(50|51)_NoseSneer/,
+];
+
+// FBX2glTF tar inte med uttryckens namn, så de läses direkt ur den binära FBX-filen (i samma ordning)
+function morphNames(fbxPath) {
+  const buf = readFileSync(fbxPath).toString('latin1');
+  const names = [];
+  const re = /([A-Za-z0-9_.\- ]{2,80})\x00\x01SubDeformer/g;
+  let m;
+  while ((m = re.exec(buf))) names.push(m[1].replace(/^.*\./, ''));
+  return names;
+}
+
+async function convertAvatar(name, hq = false) {
   const base = `Assets/Avatars/Adults/${name}`;
   const files = listFiles(base);
-  const fbx = files.find((f) => f.endsWith(`/Export/${name}.fbx`));
+  const fbx = files.find((f) => f.endsWith(`/Export/${name}${hq ? '_facial' : ''}.fbx`));
   if (!fbx) throw new Error(`Hittar ingen FBX för ${name}`);
   const work = join(TMP, name);
   mkdirSync(work, { recursive: true });
@@ -52,6 +81,31 @@ async function convertAvatar(name) {
   fbx2gltf(join(work, 'model.fbx'), join(work, 'model'));
   const doc = await io.read(join(work, 'model.glb'));
   const root = doc.getRoot();
+  if (hq) {
+    // Behåll bara de uttryck spelet använder och spara deras namn så att three.js hittar dem
+    const names = morphNames(join(work, 'model.fbx'));
+    for (const mesh of root.listMeshes()) {
+      const prims = mesh.listPrimitives();
+      const count = prims[0]?.listTargets().length || 0;
+      if (!count) continue;
+      if (count !== names.length) throw new Error(`${name}: ${count} uttryck men ${names.length} namn`);
+      const keep = names.map((n, i) => (KEEP_MORPHS.some((re) => re.test(n)) ? i : -1)).filter((i) => i >= 0);
+      for (const prim of prims) {
+        const targets = prim.listTargets();
+        targets.forEach((t, i) => {
+          if (keep.includes(i)) {
+            t.setName(names[i]); // skrivs ut som mesh.extras.targetNames
+          } else {
+            prim.removeTarget(t);
+            t.dispose();
+          }
+        });
+      }
+      mesh.setWeights(keep.map(() => 0));
+    }
+  }
+  // Närbild: dubbelt så skarpa texturer
+  const size = () => (hq ? 2048 : 1024);
   doc.createExtension(EXTTextureWebP).setRequired(true);
 
   const tgaFor = (matName, suffix) => {
@@ -79,7 +133,7 @@ async function convertAvatar(name) {
     m.setMetallicFactor(0).setRoughnessFactor(1).setBaseColorFactor([1, 1, 1, 1]);
     if (/opacity/i.test(n)) {
       const color = tgaFor(n, 'color');
-      if (color) m.setBaseColorTexture(makeTexture('alpha', color, 1024));
+      if (color) m.setBaseColorTexture(makeTexture('alpha', color, hq ? 2048 : 1024));
       m.setAlphaMode('MASK').setAlphaCutoff(0.4).setDoubleSided(true).setRoughnessFactor(0.75);
       continue;
     }
@@ -87,15 +141,15 @@ async function convertAvatar(name) {
     const color = tgaFor(n, 'color');
     const normal = tgaFor(n, 'normal');
     const spec = tgaFor(n, 'specular');
-    if (color) m.setBaseColorTexture(makeTexture('color', color, 1024));
-    if (normal) m.setNormalTexture(makeTexture('normal', normal, isHead ? 1024 : 512));
-    if (spec) m.setMetallicRoughnessTexture(makeTexture('rough', spec, 512));
+    if (color) m.setBaseColorTexture(makeTexture('color', color, size()));
+    if (normal) m.setNormalTexture(makeTexture('normal', normal, hq ? (isHead ? 2048 : 1024) : isHead ? 1024 : 512));
+    if (spec) m.setMetallicRoughnessTexture(makeTexture('rough', spec, hq ? 1024 : 512));
     else m.setRoughnessFactor(0.7);
   }
   for (const a of root.listAnimations()) a.dispose();
 
-  await doc.transform(prune(), dedup(), quantize({ quantizeNormal: 10, quantizeTexcoord: 12 }), meshopt({ encoder: MeshoptEncoder }));
-  const out = join(OUT, 'avatars', `${name}.glb`);
+  await doc.transform(prune(), dedup(), quantize({ quantizeNormal: 10, quantizeTexcoord: 12, quantizeMorph: 12 }), meshopt({ encoder: MeshoptEncoder }));
+  const out = join(OUT, hq ? 'avatars-hq' : 'avatars', `${name}.glb`);
   await io.write(out, doc);
   rmSync(work, { recursive: true, force: true });
   return readFileSync(out).byteLength;
@@ -199,19 +253,20 @@ async function convertAnims(g) {
 const all = listFiles('Assets/Avatars/Adults')
   .map((p) => p.split('/')[3])
   .filter((v, i, a) => a.indexOf(v) === i);
-const wanted = process.argv.slice(3).filter((a) => a !== '--anims');
+const HQ = process.argv.includes('--hq');
+const wanted = process.argv.slice(3).filter((a) => !a.startsWith('--'));
 const avatars = wanted.length ? wanted : all;
-if (!wanted.length || process.argv.includes('--anims')) {
+if ((!wanted.length && !HQ) || process.argv.includes('--anims')) {
   for (const g of ['f', 'm']) console.log(`anims/${g}.glb`, ((await convertAnims(g)) / 1024).toFixed(0), 'kB');
 }
 const manifest = [];
 for (const name of avatars) {
   if (!all.includes(name)) continue;
-  const size = await convertAvatar(name);
+  const size = await convertAvatar(name, HQ);
   manifest.push({ id: name, gender: name.startsWith('Female') ? 'f' : 'm' });
   console.log(name, (size / 1024).toFixed(0), 'kB');
 }
-const manifestPath = join(OUT, 'avatars', 'index.json');
+const manifestPath = join(OUT, HQ ? 'avatars-hq' : 'avatars', 'index.json');
 const prev = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : [];
 const merged = [...prev.filter((p) => !manifest.some((m) => m.id === p.id)), ...manifest].sort((a, b) => a.id.localeCompare(b.id));
 writeFileSync(manifestPath, JSON.stringify(merged, null, 1));

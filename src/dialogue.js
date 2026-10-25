@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { ACTION_TOOL, validCommand, commandResultText } from './commands.js';
+import { ACTION_TOOL, EMOTION_TOOL, EMOTIONS, validCommand, commandResultText } from './commands.js';
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -170,7 +170,20 @@ export class OfflineBrain {
       }
     }
     ch.memory.met = true;
-    return { text: out, leave: intent === 'bye' };
+    // Ansiktsuttryck som passar svaret (syns i närbildsläget)
+    const rude = ['grinig', 'sarkastisk'].includes(p.personality.id);
+    const emotion = {
+      greet: 'happy',
+      compliment: 'happy',
+      thanks: 'happy',
+      bye: 'happy',
+      secret: 'happy',
+      joke: 'laugh',
+      insult: rude ? 'angry' : 'sad',
+      question: 'thinking',
+      howareyou: mood > 0.7 ? 'happy' : mood < 0.4 ? 'sad' : null,
+    }[intent];
+    return { text: out, leave: intent === 'bye', emotion };
   }
 }
 
@@ -233,7 +246,11 @@ Handlingar:
 - Du kan röra dig och göra saker i rummet med verktyget gor_handling: sätta dig, resa dig, gå till en plats, komma fram till spelaren, följa efter spelaren, stanna, lämna rummet, eller gester som att vinka, dansa, klappa händerna, jubla, skratta, rycka på axlarna, sträcka på dig, gäspa, sätta dig på huk, ta ett foto eller fundera.
 - När spelaren ber dig göra något sådant gör du det, gärna med en kommentar i din personlighets stil. Skriv först en kort replik, anropa sedan verktyget.
 - Om spelaren tar farväl eller ber dig gå, säg hej då och använd handlingen lamna_rummet.
-- Säg inte att du gör något du inte kan göra med verktyget.`;
+- Säg inte att du gör något du inte kan göra med verktyget.${
+    ch.hasFace
+      ? '\n- Spelaren ser ditt ansikte i närbild. Visa känslor med verktyget visa_kansla när de tydligt ändras, t.ex. när du blir glad, skrattar, blir ledsen, arg eller förvånad.'
+      : ''
+  }`;
 }
 
 export class ClaudeBrain {
@@ -244,7 +261,7 @@ export class ClaudeBrain {
 
   // execute(cmd) utför en handling i spelet och returnerar { ok, reason }.
   // Resultaten skickas tillbaka till Claude tillsammans med spelarens nästa meddelande.
-  async reply(ch, text, world, onDelta, execute) {
+  async reply(ch, text, world, onDelta, execute, feel) {
     const pending = ch.pendingToolResults || [];
     ch.pendingToolResults = [];
     ch.history.push({ role: 'user', content: [...pending, { type: 'text', text }] });
@@ -262,7 +279,7 @@ export class ClaudeBrain {
         betas: ['server-side-fallback-2026-07-01'],
         fallbacks: 'default',
         system: systemPrompt(ch, world),
-        tools: [ACTION_TOOL],
+        tools: ch.hasFace ? [ACTION_TOOL, EMOTION_TOOL] : [ACTION_TOOL],
         messages: ch.history,
       });
       stream.on('text', (delta) => {
@@ -285,6 +302,12 @@ export class ClaudeBrain {
     const results = [];
     for (const block of final.content) {
       if (block.type !== 'tool_use') continue;
+      if (block.name === EMOTION_TOOL.name) {
+        const emotion = final.stop_reason !== 'max_tokens' && EMOTIONS[block.input?.kansla];
+        if (emotion) feel(emotion);
+        results.push({ type: 'tool_result', tool_use_id: block.id, content: emotion ? 'Syns i ansiktet.' : 'Okänd känsla.', ...(emotion ? {} : { is_error: true }) });
+        continue;
+      }
       // Med strömmade verktygsargument kan indata vara ofullständig; kontrollera den innan något körs
       const cmd = final.stop_reason === 'max_tokens' ? null : validCommand(block.input);
       if (!cmd) {
