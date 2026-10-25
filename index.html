@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#14110f" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>Vardagsrummet</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" hidden>
+      <div id="crosshair"></div>
+      <div id="focus-label"><span class="name"></span><span class="hint">Tryck för att prata</span></div>
+      <div id="joy-base"><div id="joy-knob"></div></div>
+      <button id="talk-btn" class="round" hidden aria-label="Prata">💬</button>
+      <button id="settings-btn" class="round small" aria-label="Inställningar">⚙︎</button>
+      <div id="toast"></div>
+    </div>
+
+    <div id="chat" hidden>
+      <header>
+        <div>
+          <div id="chat-name"></div>
+          <div id="chat-sub"></div>
+        </div>
+        <button id="chat-close" aria-label="Stäng">✕</button>
+      </header>
+      <div id="chat-log"></div>
+      <div id="chat-quick"></div>
+      <form id="chat-form" autocomplete="off">
+        <input id="chat-input" type="text" placeholder="Säg något…" enterkeyhint="send" maxlength="400" />
+        <button type="submit" aria-label="Skicka">➤</button>
+      </form>
+    </div>
+
+    <div id="start">
+      <div class="card">
+        <h1>Vardagsrummet</h1>
+        <p class="lead">Ett möblerat rum där folk kommer och går. Gå fram till någon och börja prata.</p>
+        <ul class="howto">
+          <li><b>Mobil:</b> vänster tumme går, höger tumme tittar. Tryck på en person för att prata.</li>
+          <li><b>Dator:</b> WASD för att gå, dra med musen för att titta, <kbd>E</kbd> för att prata.</li>
+        </ul>
+        <button id="start-btn" class="primary">Gå in</button>
+        <button id="start-settings" class="link">Inställningar och AI-samtal</button>
+      </div>
+    </div>
+
+    <div id="settings" hidden>
+      <div class="card">
+        <h2>Inställningar</h2>
+        <label>Grafikkvalitet
+          <select id="set-quality">
+            <option value="auto">Automatisk</option>
+            <option value="low">Låg (snabbast)</option>
+            <option value="medium">Mellan</option>
+            <option value="high">Hög (skuggor, AO och glöd)</option>
+          </select>
+        </label>
+        <label>Anthropic API-nyckel (valfri)
+          <input id="set-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
+        </label>
+        <p class="note">Med en nyckel spelas karaktärerna av Claude och kan föra fria samtal. Nyckeln sparas bara i den här webbläsaren och skickas direkt till Anthropic. Utan nyckel används den inbyggda samtalsmotorn.</p>
+        <label>Modell
+          <select id="set-model">
+            <option value="claude-opus-5-5">Claude Opus 5.5</option>
+            <option value="claude-sonnet-5-5">Claude Sonnet 5.5</option>
+            <option value="claude-haiku-5-5">Claude Haiku 5.5</option>
+          </select>
+        </label>
+        <div class="row">
+          <button id="set-cancel" class="link">Avbryt</button>
+          <button id="set-save" class="primary">Spara</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
