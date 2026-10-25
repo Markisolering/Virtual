@@ -456,7 +456,7 @@ kbd {
 }
 
 /* ---------- Uppdateringar ---------- */
-#update-banner {
+.update-banner {
   position: fixed;
   left: 50%;
   top: calc(10px + env(safe-area-inset-top));
@@ -474,7 +474,7 @@ kbd {
   font-size: 14px;
   animation: pop 0.25s ease-out;
 }
-#update-banner button {
+.update-banner button {
   flex: none;
   padding: 8px 14px;
   border-radius: 999px;
@@ -500,4 +500,8 @@ kbd {
 }
 body.has-update #toast {
   top: calc(66px + env(safe-area-inset-top));
+}
+#apk-banner {
+  top: auto;
+  bottom: calc(14px + env(safe-area-inset-bottom));
 }

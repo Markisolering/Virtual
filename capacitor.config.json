@@ -1,0 +1,14 @@
+{
+  "appId": "io.github.markisolering.vardagsrummet",
+  "appName": "Vardagsrummet",
+  "webDir": "android-web",
+  "server": {
+    "url": "https://markisolering.github.io/Virtual/",
+    "errorPath": "offline.html",
+    "androidScheme": "https"
+  },
+  "android": {
+    "appendUserAgent": "VardagsrummetApp/1",
+    "backgroundColor": "#14110f"
+  }
+}

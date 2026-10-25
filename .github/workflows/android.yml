@@ -1,0 +1,109 @@
+# Bygger Android-appen (APK).
+#
+# Vid push till main publiceras APK:n under Releases, med en fast nedladdningslänk:
+#   https://github.com/Markisolering/Virtual/releases/latest/download/Vardagsrummet.apk
+# På andra grenar byggs den bara som kontroll och sparas som artefakt i körningen.
+#
+# Signering: Android kräver att varje ny version signeras med samma nyckel. Nyckeln skapas här
+# första gången och checkas in krypterad med repo-hemligheten KEYSTORE_PASSWORD
+# (Settings → Secrets and variables → Actions). Lösenordet finns bara som hemlighet.
+name: Bygg Android-app
+
+on:
+  push:
+    paths:
+      - 'android/**'
+      - 'android-web/**'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEYSTORE: android/app/release.keystore
+      ON_MAIN: ${{ github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Förbered signeringsnyckel
+        run: |
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            if [ "$ON_MAIN" = "true" ]; then
+              echo "::error::Hemligheten KEYSTORE_PASSWORD saknas. Lägg till den under Settings → Secrets and variables → Actions och kör arbetsflödet igen."
+              exit 1
+            fi
+            # Testbygge på en gren: tillfällig nyckel som slängs efteråt
+            pw=$(openssl rand -hex 24)
+            echo "::add-mask::$pw"
+            echo "KEYSTORE_PASSWORD=$pw" >> "$GITHUB_ENV"
+            export KEYSTORE_PASSWORD=$pw
+            rm -f "$KEYSTORE"
+          fi
+          if [ ! -f "$KEYSTORE" ]; then
+            keytool -genkeypair -keystore "$KEYSTORE" -storetype PKCS12 -alias vardagsrummet \
+              -keyalg RSA -keysize 3072 -validity 10000 \
+              -storepass:env KEYSTORE_PASSWORD -keypass:env KEYSTORE_PASSWORD \
+              -dname "CN=Vardagsrummet, O=Markisolering, C=SE"
+            echo "NEW_KEYSTORE=true" >> "$GITHUB_ENV"
+          fi
+
+      - run: npm ci
+      - name: Sätt byggnumret som appen skickar till spelet
+        run: |
+          node -e "
+            const fs = require('fs');
+            const c = JSON.parse(fs.readFileSync('capacitor.config.json'));
+            c.android.appendUserAgent = 'VardagsrummetApp/${{ github.run_number }}';
+            fs.writeFileSync('capacitor.config.json', JSON.stringify(c, null, 2));
+          "
+      - run: npx cap sync android
+      - name: Bygg APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -PappVersionCode=${{ github.run_number }} -PappVersionName="$(date -u +%Y.%m.%d)-${{ github.run_number }}"
+      - run: cp android/app/build/outputs/apk/release/app-release.apk Vardagsrummet.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Vardagsrummet-apk
+          path: Vardagsrummet.apk
+
+      - name: Spara den nya krypterade nyckeln i repot
+        if: env.ON_MAIN == 'true' && env.NEW_KEYSTORE == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -- capacitor.config.json
+          git add -f "$KEYSTORE"
+          git commit -m "Lägg till krypterad signeringsnyckel för Android-appen"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Publicera under Releases
+        if: env.ON_MAIN == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "app-${{ github.run_number }}" Vardagsrummet.apk \
+            --target "${{ github.sha }}" \
+            --title "Android-app ${{ github.run_number }}" \
+            --notes "Ladda ner **Vardagsrummet.apk** nedan och öppna filen på telefonen för att installera. Har du en äldre version installerad uppdateras den." \
+            --latest

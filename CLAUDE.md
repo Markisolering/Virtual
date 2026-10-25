@@ -5,3 +5,5 @@
 - Allt som syns i appen, och kodkommentarer, skrivs på svenska.
 - Kontrollera ändringar med `npm run build` och gärna en skärmdump via Playwright innan de pushas.
 - Modellerna konverteras med `tools/convert-rocketbox.mjs` (se kommentaren i filen). Kör inte om konverteringen i onödan; GLB-filerna är incheckade.
+- Android-appen (`android/`, Capacitor) laddar spelet från GitHub Pages. Ändringar i spelet kräver alltså ingen ny APK. Ändras något i `android/` eller `capacitor.config.json` byggs och publiceras en ny APK av `.github/workflows/android.yml`.
+- Signeringsnyckeln `android/app/release.keystore` skapas av arbetsflödet och är krypterad med hemligheten `KEYSTORE_PASSWORD`. Checka aldrig in lösenord eller okrypterade nycklar, och byt inte nyckeln: då går appen inte att uppdatera.
