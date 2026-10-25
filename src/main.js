@@ -10,6 +10,7 @@ import { Nav } from './nav.js';
 import { Character, angleDiff, library } from './characters.js';
 import { OfflineBrain, ClaudeBrain, loadSettings, saveSettings, DEFAULT_MODEL } from './dialogue.js';
 import { parseCommand, commandReply } from './commands.js';
+import { PRESETS } from './motion.js';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
@@ -888,4 +889,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Exponera för felsökning i konsolen
-window.__game = { scene, characters, player, camera, sim: simWorld, spawnAtDoor, openChat, send, library };
+window.__game = { scene, characters, player, camera, sim: simWorld, spawnAtDoor, openChat, send, library, motions: PRESETS };
