@@ -37,6 +37,20 @@
       <div id="chat-quick"></div>
       <form id="chat-form" autocomplete="off">
         <input id="chat-input" type="text" placeholder="Säg något eller be om något…" enterkeyhint="send" maxlength="400" />
+        <button type="button" class="mic-btn" aria-label="Prata in">🎤</button>
+        <button type="submit" aria-label="Skicka">➤</button>
+      </form>
+    </div>
+
+    <!-- Kompakt samtalsvy -->
+    <div id="speech-bubble" hidden><span class="text"></span></div>
+    <div id="rate-pop" hidden></div>
+    <div id="talkbar" hidden>
+      <div id="talk-heard" hidden></div>
+      <form id="talk-form" autocomplete="off">
+        <button type="button" id="talk-close" aria-label="Avsluta samtalet">✕</button>
+        <input id="talk-input" type="text" placeholder="Säg något…" enterkeyhint="send" maxlength="400" />
+        <button type="button" class="mic-btn" aria-label="Prata in">🎤</button>
         <button type="submit" aria-label="Skicka">➤</button>
       </form>
     </div>
@@ -85,6 +99,33 @@
             <option value="m">Bara män</option>
           </select>
         </label>
+        <fieldset class="group">
+          <legend>Samtal</legend>
+          <label>Samtalsvy
+            <select id="set-view">
+              <option value="compact">Kompakt: pratbubbla ovanför personen</option>
+              <option value="chat">Chattruta med hela samtalet</option>
+            </select>
+          </label>
+          <label>Personens svar
+            <select id="set-reply">
+              <option value="both">Text och röst</option>
+              <option value="text">Bara text</option>
+              <option value="voice">Bara röst</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="set-mic" /> Mikrofonknapp: prata in med rösten</label>
+          <label class="check"><input type="checkbox" id="set-autosend" /> Skicka direkt när jag har slutat prata</label>
+          <label class="check"><input type="checkbox" id="set-handsfree" /> Handsfree: lyssna igen automatiskt efter varje svar</label>
+          <label>Röst
+            <select id="set-voice"><option value="">Automatisk</option></select>
+          </label>
+          <label>Taltempo <span id="rate-val"></span>
+            <input type="range" id="set-rate" min="0.7" max="1.5" step="0.05" />
+          </label>
+          <button type="button" id="test-voice" class="small-btn">Testa rösten</button>
+          <p id="voice-note" class="note" hidden>Röst stöds inte fullt ut i den här webbläsaren. Prova Chrome eller Android-appen.</p>
+        </fieldset>
         <label>Anthropic API-nyckel (valfri)
           <input id="set-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
         </label>

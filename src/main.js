@@ -12,12 +12,26 @@ import { OfflineBrain, ClaudeBrain, loadSettings, saveSettings, DEFAULT_MODEL, a
 import { rateMotion, updateLessons, motionLessons, learnedCount, resetLearning } from './learning.js';
 import { parseCommand, commandReply } from './commands.js';
 import { PRESETS } from './motion.js';
+import { voice } from './voice.js';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
 
 // ---------------- Inställningar och kvalitet ----------------
-let settings = { quality: 'auto', show: 'all', mode: 'room', ...loadSettings() };
+let settings = {
+  quality: 'auto',
+  show: 'all',
+  mode: 'room',
+  // Samtal: kompakt vy med pratbubbla, svar som text och röst, mikrofonknapp som skickar direkt
+  view: 'compact',
+  replyMode: 'both',
+  mic: true,
+  autoSend: true,
+  handsFree: false,
+  voiceName: '',
+  voiceRate: 1,
+  ...loadSettings(),
+};
 library.filter = settings.show;
 // Närbild: en eller två personer åt gången, detaljerade modeller med ansiktsuttryck och högsta grafikkvalitet
 const closeup = settings.mode === 'closeup';
@@ -310,13 +324,15 @@ function updatePlayer(dt) {
     const dx = h.x - player.position.x;
     const dz = h.z - player.position.z;
     const dy = h.y - EYE;
-    const landscapePanel = innerWidth > innerHeight && innerHeight <= 520;
+    const panel = !compactView();
+    const landscapePanel = panel && innerWidth > innerHeight && innerHeight <= 520;
     const vfov = THREE.MathUtils.degToRad(camera.fov) / camera.zoom;
     const hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
     // Liggande: chatten ligger till höger, så ansiktet hamnar i mitten av vänstra delen.
     // Stående: chatten täcker nedre ~58 %, så ansiktet hamnar i mitten av övre delen.
     const wantYaw = Math.atan2(-dx, -dz) + (landscapePanel ? -0.24 * hfov : 0);
-    const wantPitch = Math.atan2(dy, Math.hypot(dx, dz)) - (landscapePanel ? 0 : 0.27 * vfov);
+    // Kompakt vy: ansiktet strax ovanför mitten så att pratbubblan får plats ovanför
+    const wantPitch = Math.atan2(dy, Math.hypot(dx, dz)) - (landscapePanel ? 0 : panel ? 0.27 * vfov : 0.04 * vfov);
     player.yaw += angleDiff(player.yaw, wantYaw) * Math.min(1, dt * 4);
     player.pitch += (wantPitch - player.pitch) * Math.min(1, dt * 4);
     return;
@@ -420,7 +436,9 @@ function updateFocus() {
 }
 talkBtn.addEventListener('click', () => focused && openChat(focused));
 
-// ---------------- Chatt ----------------
+// ---------------- Samtal ----------------
+// Två vyer: "compact" (pratbubbla ovanför personen och en smal rad längst ner) och "chat" (chattruta
+// med historik). Svaren kan visas som text, läsas upp med röst eller båda, och spelaren kan prata in.
 let chatOpen = false;
 let chatWith = null;
 let busy = false;
@@ -428,7 +446,16 @@ let leaveAfterChat = false;
 const offline = new OfflineBrain();
 const chatEl = $('chat');
 const log = $('chat-log');
+const talkbar = $('talkbar');
+const bubbleEl = $('speech-bubble');
+const heardEl = $('talk-heard');
 const QUICK = ['Hej!', 'Vad heter du?', 'Sätt dig i soffan', 'Följ mig', 'Dansa!', 'Kom hit', 'Gå till köket', 'Vinka', 'Hur mår du?', 'Vad jobbar du med?', 'Berätta något om dig', 'Hej då!'];
+const PLACEHOLDER = 'Säg något eller be om något…';
+const compactView = () => settings.view !== 'chat';
+const showText = () => settings.replyMode !== 'voice';
+const useVoice = () => settings.replyMode !== 'text' && voice.canSpeak();
+const activeInput = () => (compactView() ? $('talk-input') : $('chat-input'));
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function addMsg(text, who) {
   const m = document.createElement('div');
@@ -436,7 +463,64 @@ function addMsg(text, who) {
   m.textContent = text;
   log.appendChild(m);
   log.scrollTop = log.scrollHeight;
+  // I den kompakta vyn syns inte chattrutan: egna repliker visas kort ovanför raden, systemtexter som toast
+  if (compactView() && who === 'me') showHeard(text);
+  if (compactView() && who === 'sys' && text !== '…') toast(text);
   return m;
+}
+
+// ---- Pratbubbla ovanför personen (kompakt vy) ----
+let bubbleUntil = 0;
+function setBubble(text, typing = false) {
+  if (!compactView() || !showText()) return;
+  // Handlingar inom *stjärnor* visas kursivt utan stjärnorna
+  const el = bubbleEl.querySelector('.text');
+  el.textContent = '';
+  if (!typing) {
+    for (const [i, part] of text.split(/\*([^*]+)\*/).entries()) {
+      if (!part) continue;
+      const span = document.createElement(i % 2 ? 'i' : 'span');
+      span.textContent = part;
+      el.appendChild(span);
+    }
+  }
+  bubbleEl.classList.toggle('typing', typing);
+  bubbleEl.hidden = false;
+  bubbleUntil = Infinity;
+}
+function releaseBubble(seconds) {
+  bubbleUntil = performance.now() / 1000 + seconds;
+}
+const bubblePos = new THREE.Vector3();
+function updateBubble() {
+  if (bubbleEl.hidden) return;
+  if (!chatWith || performance.now() / 1000 > bubbleUntil) {
+    bubbleEl.hidden = true;
+    return;
+  }
+  bubblePos.copy(chatWith.headWorld());
+  bubblePos.y += 0.24;
+  bubblePos.project(camera);
+  if (bubblePos.z > 1) {
+    bubbleEl.style.opacity = 0;
+    return;
+  }
+  bubbleEl.style.opacity = 1;
+  // Håll bubblan inom skärmen
+  const x = Math.min(innerWidth - 12, Math.max(12, (bubblePos.x * 0.5 + 0.5) * innerWidth));
+  const y = Math.max(bubbleEl.offsetHeight + 60, (-bubblePos.y * 0.5 + 0.5) * innerHeight);
+  bubbleEl.style.setProperty('--x', `${x}px`);
+  bubbleEl.style.setProperty('--y', `${y}px`);
+}
+
+// Det spelaren sa (eller håller på att säga) visas kort ovanför raden
+let heardTimer = 0;
+function showHeard(text, interim = false) {
+  heardEl.textContent = text;
+  heardEl.classList.toggle('interim', interim);
+  heardEl.hidden = !text;
+  clearTimeout(heardTimer);
+  if (text && !interim) heardTimer = setTimeout(() => (heardEl.hidden = true), 3500);
 }
 
 function openChat(c) {
@@ -451,18 +535,19 @@ function openChat(c) {
   joyId = null;
   $('chat-name').textContent = `${c.persona.firstName} ${c.persona.lastName}`;
   $('chat-sub').textContent = `${c.persona.age} år · ${c.persona.job}${settings.apiKey ? ' · AI-samtal' : ''}`;
+  $('talk-input').placeholder = `Säg något till ${c.persona.firstName}…`;
   log.innerHTML = '';
   if (c.transcript?.length) {
     for (const [t, w] of c.transcript) addMsg(t, w);
     addMsg('…', 'sys');
   }
+  showHeard('');
   c.transcript ||= [];
   if (!c.memory.met) c.wave();
   const hello = offline.reply(c, 'hej', simWorld);
   const greet = hello.text;
   if (hello.emotion) c.setExpression(hello.emotion, 3);
   c.greeting = greet;
-  say(c, greet);
   const quick = $('chat-quick');
   quick.innerHTML = '';
   for (const q of QUICK) {
@@ -472,26 +557,57 @@ function openChat(c) {
     b.addEventListener('click', () => send(q));
     quick.appendChild(b);
   }
-  chatEl.hidden = false;
+  if (compactView()) talkbar.hidden = false;
+  else chatEl.hidden = false;
+  updateMicButtons();
   document.body.classList.add('chatting');
   talkBtn.hidden = true;
   focusLabel.classList.remove('show');
-  if (!isTouch) $('chat-input').focus();
+  if (!isTouch) activeInput().focus();
+  say(c, greet).then(() => afterReply(c));
 }
 
-function say(c, text, el) {
+// Personens replik: i chatten eller pratbubblan, uppläst om rösten är på, och med läppsynk
+async function say(c, text, el) {
   if (el) el.textContent = text;
   else addMsg(text, 'them');
   c.transcript.push([text, 'them']);
-  c.speakText(text);
+  setBubble(text);
+  if (useVoice() && chatWith === c) {
+    // Ljusare röst för kvinnor och mörkare för män, med lite variation mellan personer
+    const pitch = (c.gender === 'f' ? 1.12 : 0.88) * (0.95 + (c.id % 5) * 0.025);
+    const talk = () => {
+      c.speakText(text);
+      c.speaking = 30; // munnen rör sig tills rösten är klar
+    };
+    talk();
+    await voice.speak(text, { rate: settings.voiceRate || 1, pitch, voiceId: settings.voiceName || '', onStart: talk });
+    c.speaking = 0;
+    releaseBubble(2.5);
+  } else {
+    const d = c.speakText(text);
+    releaseBubble(Math.max(4, d + 2.5));
+    await wait(d * 1000);
+  }
+}
+
+// Handsfree: lyssna igen när personen har svarat
+function afterReply(c) {
+  if (chatOpen && chatWith === c && settings.handsFree && settings.mic !== false && voice.canListen() && !voice.listening) startListening();
 }
 
 function closeChat() {
   if (!chatOpen) return;
   chatOpen = false;
   chatEl.hidden = true;
+  talkbar.hidden = true;
+  bubbleEl.hidden = true;
+  showHeard('');
+  voice.stopListening();
+  voice.cancel();
   document.body.classList.remove('chatting');
   $('chat-input').blur();
+  $('talk-input').blur();
   const c = chatWith;
   chatWith = null;
   if (!c) return;
@@ -505,10 +621,13 @@ async function send(text) {
   if (!text || busy || !chatWith) return;
   const c = chatWith;
   busy = true;
+  voice.cancel();
   addMsg(text, 'me');
   c.transcript.push([text, 'me']);
   $('chat-input').value = '';
+  $('talk-input').value = '';
   const bubble = addMsg('', 'them typing');
+  setBubble('', true);
   const execute = (cmd) => c.command(cmd, simWorld);
   let result = null;
   if (settings.apiKey) {
@@ -521,6 +640,7 @@ async function send(text) {
         (partial) => {
           bubble.classList.remove('typing');
           bubble.textContent = partial;
+          setBubble(partial);
           c.speech = null;
           c.speaking = 1.2;
           log.scrollTop = log.scrollHeight;
@@ -536,7 +656,7 @@ async function send(text) {
     }
   }
   if (!result) {
-    await new Promise((r) => setTimeout(r, 450 + Math.random() * 600));
+    await wait(450 + Math.random() * 600);
     // Ber spelaren personen göra något? Annars ett vanligt samtalssvar.
     const cmd = parseCommand(text);
     if (cmd) {
@@ -549,51 +669,139 @@ async function send(text) {
   }
   bubble.classList.remove('typing');
   const outcomes = result.outcomes || [];
+  let spoken = Promise.resolve();
   if (chatWith === c) {
     // Claude kan anropa verktyget utan att säga något; då svarar personen med en standardreplik
-    say(c, result.text || (outcomes[0] ? commandReply(c.persona, outcomes[0].cmd, outcomes[0].res) : '…'), bubble);
-    // Om Claude lovade något som inte gick att göra, säger personen det
-    if (settings.apiKey && result.text) for (const o of outcomes) if (!o.res.ok) say(c, commandReply(c.persona, o.cmd, o.res));
+    const reply = result.text || (outcomes[0] ? commandReply(c.persona, outcomes[0].cmd, outcomes[0].res) : '…');
+    // Om Claude lovade något som inte gick att göra, säger personen det efteråt
+    const failures = settings.apiKey && result.text ? outcomes.filter((o) => !o.res.ok).map((o) => commandReply(c.persona, o.cmd, o.res)) : [];
+    spoken = (async () => {
+      await say(c, reply, bubble);
+      for (const f of failures) if (chatWith === c) await say(c, f);
+    })();
+  } else {
+    setBubble('');
   }
   busy = false;
   // Låt spelaren betygsätta varje rörelse som personen gjorde
-  for (const o of outcomes) if (o.cmd.action === 'rorelse' && o.res.ok && o.cmd.name && chatWith === c) addRating(c, o.cmd.name);
+  for (const o of outcomes) if (o.cmd.action === 'rorelse' && o.res.ok && o.cmd.name) addRating(c, o.cmd.name);
   const did = (action) => outcomes.some((o) => o.cmd.action === action && o.res.ok);
   if (result.leave) {
     leaveAfterChat = true;
-    setTimeout(() => chatWith === c && closeChat(), 1600);
+    spoken.then(() => wait(800)).then(() => chatWith === c && closeChat());
   } else if (did('lamna_rummet')) {
-    setTimeout(() => chatWith === c && closeChat(), 1600);
+    spoken.then(() => wait(800)).then(() => chatWith === c && closeChat());
   } else if (did('folj_mig')) {
     // Stäng samtalet så att spelaren kan gå iväg
-    setTimeout(() => {
+    spoken.then(() => wait(500)).then(() => {
       if (chatWith !== c) return;
       closeChat();
       toast(`${c.name} följer efter dig. Säg "stanna" för att få ${c.persona.pronoun === 'hon' ? 'henne' : c.persona.pronoun === 'han' ? 'honom' : 'hen'} att sluta.`);
-    }, 1500);
+    });
+  } else {
+    spoken.then(() => afterReply(c));
   }
 }
 
-$('chat-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const text = $('chat-input').value.trim();
-  if (feedbackFor && text) {
-    // Spelaren skriver vad som var fel med en rörelse
-    const name = feedbackFor;
+// Skickat från textfältet eller mikrofonen
+function submitText(raw) {
+  const text = raw.trim();
+  if (!text) return;
+  if (feedbackFor) {
+    // Spelaren beskriver vad som var fel med en rörelse
+    const { name, c } = feedbackFor;
     feedbackFor = null;
-    $('chat-input').placeholder = 'Säg något eller be om något…';
+    $('chat-input').placeholder = PLACEHOLDER;
+    $('talk-input').placeholder = chatWith ? `Säg något till ${chatWith.persona.firstName}…` : PLACEHOLDER;
     $('chat-input').value = '';
-    giveFeedback(name, false, text);
+    $('talk-input').value = '';
+    giveFeedback(name, false, text, c);
     return;
   }
   send(text);
+}
+$('chat-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  submitText($('chat-input').value);
 });
+$('talk-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  submitText($('talk-input').value);
+});
+$('talk-close').addEventListener('click', closeChat);
+
+// ---- Prata in med rösten ----
+function setMicState(on) {
+  for (const b of document.querySelectorAll('.mic-btn')) b.classList.toggle('listening', on);
+}
+function updateMicButtons() {
+  const show = settings.mic !== false && voice.canListen();
+  for (const b of document.querySelectorAll('.mic-btn')) b.hidden = !show;
+}
+function startListening() {
+  if (voice.listening) {
+    voice.stopListening();
+    return;
+  }
+  if (!voice.canListen()) {
+    toast('Röstinmatning stöds inte i den här webbläsaren.');
+    return;
+  }
+  voice.cancel(); // tysta personen om hen pratar
+  setMicState(true);
+  const field = activeInput();
+  voice.listen({
+    onPartial: (t) => {
+      field.value = t;
+      if (compactView()) showHeard(t, true);
+    },
+    onEnd: (t) => {
+      setMicState(false);
+      if (!t) {
+        showHeard('');
+        return;
+      }
+      if (settings.autoSend !== false) {
+        field.value = '';
+        submitText(t);
+      } else {
+        field.value = t;
+        showHeard('');
+        field.focus();
+      }
+    },
+    onError: (e) => {
+      setMicState(false);
+      showHeard('');
+      toast(/not-allowed|denied|permission/i.test(e) ? 'Appen får inte använda mikrofonen. Tillåt det i telefonens inställningar.' : `Kunde inte lyssna (${e}).`);
+    },
+  });
+}
+for (const b of document.querySelectorAll('.mic-btn')) b.addEventListener('click', startListening);
 
 // ---------------- Betyg på rörelser ----------------
+// Ett litet kort med rörelsens namn och 👍/👎: i chattrutan, eller flytande ovanför raden i den kompakta vyn.
 let feedbackFor = null;
 const PROBLEMS = ['Fel position', 'För snabb', 'För långsam', 'För stel', 'Helt fel rörelse'];
+const ratePop = $('rate-pop');
+let rateTimer = 0;
 
 function addRating(c, name) {
+  const card = ratingCard(c, name);
+  if (compactView()) {
+    ratePop.innerHTML = '';
+    ratePop.appendChild(card);
+    ratePop.hidden = false;
+    clearTimeout(rateTimer);
+    // Försvinner av sig själv om man inte bryr sig om att betygsätta
+    rateTimer = setTimeout(() => (ratePop.hidden = true), 30000);
+  } else {
+    log.appendChild(card);
+    log.scrollTop = log.scrollHeight;
+  }
+}
+
+function ratingCard(c, name) {
   const card = document.createElement('div');
   card.className = 'rate';
   const label = name.replace(/_/g, ' ');
@@ -605,13 +813,18 @@ function addRating(c, name) {
     span.textContent = text;
     card.appendChild(span);
     card.classList.add('done');
+    if (card.parentElement === ratePop) {
+      clearTimeout(rateTimer);
+      rateTimer = setTimeout(() => (ratePop.hidden = true), 2500);
+    }
   };
   card.querySelector('[data-v="up"]').addEventListener('click', () => {
     done(`👍 Tack! "${label}" blir en förebild för nya rörelser.`);
-    giveFeedback(name, true);
+    giveFeedback(name, true, null, c);
   });
   card.querySelector('[data-v="down"]').addEventListener('click', () => {
     // Fråga vad som var fel
+    clearTimeout(rateTimer);
     card.innerHTML = '<span>Vad var fel?</span><div class="rate-chips"></div>';
     const chips = card.querySelector('.rate-chips');
     for (const p of [...PROBLEMS, 'Annat…']) {
@@ -620,37 +833,37 @@ function addRating(c, name) {
       b.textContent = p;
       b.addEventListener('click', () => {
         if (p === 'Annat…') {
-          done('👎 Skriv vad som var fel i rutan nedan.');
-          feedbackFor = name;
-          $('chat-input').placeholder = `Vad var fel med "${label}"?`;
-          $('chat-input').focus();
+          done('👎 Skriv eller säg vad som var fel.');
+          feedbackFor = { name, c };
+          if (!chatOpen && characters.includes(c)) openChat(c);
+          activeInput().placeholder = `Vad var fel med "${label}"?`;
+          activeInput().focus();
           return;
         }
         done(`👎 ${p}`);
-        giveFeedback(name, false, p.toLowerCase());
+        giveFeedback(name, false, p.toLowerCase(), c);
       });
       chips.appendChild(b);
     }
     log.scrollTop = log.scrollHeight;
   });
-  log.appendChild(card);
-  log.scrollTop = log.scrollHeight;
+  return card;
 }
 
-function giveFeedback(name, good, note) {
+function giveFeedback(name, good, note, c) {
   rateMotion(name, good, note);
   const label = name.replace(/_/g, ' ');
   // Rörelsecoachen sammanfattar betygen till lärdomar i bakgrunden
   updateLessons(settings, name, good, note).then((lessons) => lessons && toast(`Lärdomarna om rörelser är uppdaterade (${lessons.length} st).`));
   if (good) return;
-  if (settings.apiKey && chatWith) {
-    // Be personen göra om rörelsen bättre direkt
-    send(`Rörelsen "${label}" blev inte bra: ${note}. Gör om den bättre.`);
-  } else {
-    addMsg('Tack för betyget! Med AI-samtal påslaget kan personen göra om rörelsen och lära sig av det.', 'sys');
+  if (settings.apiKey && c && characters.includes(c)) {
+    // Be personen göra om rörelsen bättre direkt (samtalet öppnas igen om det var stängt)
+    if (!chatOpen) openChat(c);
+    if (chatWith === c) setTimeout(() => send(`Rörelsen "${label}" blev inte bra: ${note}. Gör om den bättre.`), chatWith.memory.met ? 300 : 1200);
+  } else if (!settings.apiKey) {
+    toast('Tack för betyget! Med AI-samtal påslaget kan personen göra om rörelsen och lära sig av det.');
   }
 }
-$('chat-close').addEventListener('click', closeChat);
 
 // ---------------- Vilka som syns ----------------
 const SHOW_TEXT = { all: 'Alla får komma in.', f: 'Nu kommer bara kvinnor in.', m: 'Nu kommer bara män in.' };
@@ -734,6 +947,15 @@ function openSettings() {
   $('set-mode').value = settings.mode || 'room';
   $('set-key').value = settings.apiKey || '';
   $('set-model').value = settings.model || DEFAULT_MODEL;
+  $('set-view').value = settings.view || 'compact';
+  $('set-reply').value = settings.replyMode || 'both';
+  $('set-mic').checked = settings.mic !== false;
+  $('set-autosend').checked = settings.autoSend !== false;
+  $('set-handsfree').checked = !!settings.handsFree;
+  $('set-rate').value = settings.voiceRate || 1;
+  $('rate-val').textContent = `${Number(settings.voiceRate || 1).toFixed(2)}×`;
+  $('voice-note').hidden = voice.canListen() && voice.canSpeak();
+  fillVoices();
   fillLearning();
   $('settings').hidden = false;
 }
@@ -743,6 +965,24 @@ $('settings-btn').addEventListener('click', () => {
   openSettings();
 });
 $('set-cancel').addEventListener('click', () => ($('settings').hidden = true));
+
+// Röster att välja mellan (svenska röster som finns i telefonen eller webbläsaren)
+async function fillVoices() {
+  const sel = $('set-voice');
+  const list = await voice.voices();
+  sel.innerHTML = '<option value="">Automatisk</option>';
+  for (const v of list) {
+    const o = document.createElement('option');
+    o.value = v.id;
+    o.textContent = v.name;
+    sel.appendChild(o);
+  }
+  sel.value = list.some((v) => v.id === settings.voiceName) ? settings.voiceName : '';
+}
+$('set-rate').addEventListener('input', () => ($('rate-val').textContent = `${Number($('set-rate').value).toFixed(2)}×`));
+$('test-voice').addEventListener('click', () => {
+  voice.speak('Hej! Så här låter jag när jag pratar med dig.', { rate: Number($('set-rate').value), voiceId: $('set-voice').value });
+});
 
 // Vad personerna har lärt sig, i inställningarna
 function fillLearning() {
@@ -772,6 +1012,13 @@ $('set-save').addEventListener('click', () => {
     show: $('set-show').value,
     apiKey: $('set-key').value.trim(),
     model: $('set-model').value,
+    view: $('set-view').value,
+    replyMode: $('set-reply').value,
+    mic: $('set-mic').checked,
+    autoSend: $('set-autosend').checked,
+    handsFree: $('set-handsfree').checked,
+    voiceName: $('set-voice').value,
+    voiceRate: Number($('set-rate').value),
   };
   saveSettings(settings);
   // Läget avgör vilka modeller som laddas, så appen startas om
@@ -960,6 +1207,7 @@ function frame(now) {
   updateKeyLight(dt);
   scene.userData.clock?.userData.update();
   if (started) updateFocus();
+  updateBubble();
 
   if (composer) composer.render(dt);
   else renderer.render(scene, camera);
