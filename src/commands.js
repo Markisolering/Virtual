@@ -7,6 +7,10 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 // Färdiga egna rörelser som den inbyggda motorn känner igen
 const MOTION_PHRASES = [
+  [/\b(lägg dig på magen|ligg på magen)\b/, 'ligga_pa_magen'],
+  [/\b(lägg dig|ligg ner|lägga dig|ligg på golvet|ligg på rygg)\b/, 'ligga_pa_rygg'],
+  [/\b(sätt dig på golvet|sitt på golvet|sätta dig på golvet)\b/, 'sitta_pa_golvet'],
+  [/\b(ställ dig på knä|stå på knä|gå ner på knä|knäböj)\b/, 'sta_pa_kna'],
   [/\bpeka\b/, 'peka'],
   [/\btummen? upp\b/, 'tumme_upp'],
   [/\b(buga|bocka|niga)\b/, 'buga'],

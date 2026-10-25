@@ -11,7 +11,7 @@ import { Character, angleDiff, library } from './characters.js';
 import { OfflineBrain, ClaudeBrain, loadSettings, saveSettings, DEFAULT_MODEL, apiMessage } from './dialogue.js';
 import { rateMotion, updateLessons, motionLessons, learnedCount, resetLearning } from './learning.js';
 import { parseCommand, commandReply } from './commands.js';
-import { PRESETS } from './motion.js';
+import { PRESETS, findMotion, motionTitle } from './motion.js';
 import { voice } from './voice.js';
 
 const $ = (id) => document.getElementById(id);
@@ -709,13 +709,13 @@ function submitText(raw) {
   if (!text) return;
   if (feedbackFor) {
     // Spelaren beskriver vad som var fel med en rörelse
-    const { name, c } = feedbackFor;
+    const { name, c, grade } = feedbackFor;
     feedbackFor = null;
     $('chat-input').placeholder = PLACEHOLDER;
     $('talk-input').placeholder = chatWith ? `Säg något till ${chatWith.persona.firstName}…` : PLACEHOLDER;
     $('chat-input').value = '';
     $('talk-input').value = '';
-    giveFeedback(name, false, text, c);
+    giveFeedback(name, grade || 'down', text, c);
     return;
   }
   send(text);
@@ -801,65 +801,98 @@ function addRating(c, name) {
   }
 }
 
+// Snabbval när rörelsen var "nästan" rätt: vad som ska justeras
+const ADJUST = ['Mer', 'Mindre', 'Snabbare', 'Långsammare', 'Håll posen längre'];
+
 function ratingCard(c, name) {
   const card = document.createElement('div');
   card.className = 'rate';
-  const label = name.replace(/_/g, ' ');
-  card.innerHTML = `<span>Hur blev <b></b>?</span><div class="rate-buttons"><button type="button" data-v="up" aria-label="Bra">👍</button><button type="button" data-v="down" aria-label="Dålig">👎</button></div>`;
-  card.querySelector('b').textContent = label;
+  const label = motionTitle(name);
+  const buttons = () => {
+    card.innerHTML = `<span>Hur blev <b></b>?</span><div class="rate-buttons">
+      <button type="button" data-v="up" aria-label="Bra">👍</button>
+      <button type="button" data-v="close" aria-label="Nästan, åt rätt håll">↗️ Nästan</button>
+      <button type="button" data-v="down" aria-label="Dålig">👎</button>
+      <button type="button" data-v="again" aria-label="Gör igen">🔁 Igen</button></div>`;
+    card.querySelector('b').textContent = label;
+    card.querySelector('[data-v="up"]').addEventListener('click', () => {
+      done(`👍 Tack! "${label}" blir en förebild för nya rörelser.`);
+      giveFeedback(name, 'up', null, c);
+    });
+    card.querySelector('[data-v="close"]').addEventListener('click', () => ask('close', 'Vad ska justeras?', ADJUST, '↗️'));
+    card.querySelector('[data-v="down"]').addEventListener('click', () => ask('down', 'Vad var fel?', PROBLEMS, '👎'));
+    // Gör rörelsen en gång till direkt, utan att fråga AI:n
+    card.querySelector('[data-v="again"]').addEventListener('click', () => {
+      const def = findMotion(name);
+      if (!def || !characters.includes(c)) {
+        toast('Personen är inte kvar i rummet.');
+        return;
+      }
+      c.command({ action: 'rorelse', motion: def, name }, simWorld);
+      armHide(30000);
+    });
+  };
+  const armHide = (ms) => {
+    if (card.parentElement !== ratePop) return;
+    clearTimeout(rateTimer);
+    rateTimer = setTimeout(() => (ratePop.hidden = true), ms);
+  };
   const done = (text) => {
     card.innerHTML = '';
     const span = document.createElement('span');
     span.textContent = text;
     card.appendChild(span);
     card.classList.add('done');
-    if (card.parentElement === ratePop) {
-      clearTimeout(rateTimer);
-      rateTimer = setTimeout(() => (ratePop.hidden = true), 2500);
-    }
+    armHide(2500);
   };
-  card.querySelector('[data-v="up"]').addEventListener('click', () => {
-    done(`👍 Tack! "${label}" blir en förebild för nya rörelser.`);
-    giveFeedback(name, true, null, c);
-  });
-  card.querySelector('[data-v="down"]').addEventListener('click', () => {
-    // Fråga vad som var fel
+  const ask = (grade, question, options, icon) => {
     clearTimeout(rateTimer);
-    card.innerHTML = '<span>Vad var fel?</span><div class="rate-chips"></div>';
+    card.innerHTML = '<span></span><div class="rate-chips"></div>';
+    card.querySelector('span').textContent = question;
     const chips = card.querySelector('.rate-chips');
-    for (const p of [...PROBLEMS, 'Annat…']) {
+    for (const p of [...options, 'Annat…', '← Tillbaka']) {
       const b = document.createElement('button');
       b.type = 'button';
       b.textContent = p;
       b.addEventListener('click', () => {
+        if (p === '← Tillbaka') {
+          buttons();
+          return;
+        }
         if (p === 'Annat…') {
-          done('👎 Skriv eller säg vad som var fel.');
-          feedbackFor = { name, c };
+          done(`${icon} Skriv eller säg vad som ska bli annorlunda.`);
+          feedbackFor = { name, c, grade };
           if (!chatOpen && characters.includes(c)) openChat(c);
-          activeInput().placeholder = `Vad var fel med "${label}"?`;
+          activeInput().placeholder = `Vad ska ändras i "${label}"?`;
           activeInput().focus();
           return;
         }
-        done(`👎 ${p}`);
-        giveFeedback(name, false, p.toLowerCase(), c);
+        done(`${icon} ${p}`);
+        giveFeedback(name, grade, p.toLowerCase(), c);
       });
       chips.appendChild(b);
     }
     log.scrollTop = log.scrollHeight;
-  });
+  };
+  buttons();
   return card;
 }
 
-function giveFeedback(name, good, note, c) {
-  rateMotion(name, good, note);
-  const label = name.replace(/_/g, ' ');
+// grade: 'up' (bra), 'close' (inte bra men åt rätt håll) eller 'down' (dålig)
+function giveFeedback(name, grade, note, c) {
+  rateMotion(name, grade, note);
+  const label = motionTitle(name);
   // Rörelsecoachen sammanfattar betygen till lärdomar i bakgrunden
-  updateLessons(settings, name, good, note).then((lessons) => lessons && toast(`Lärdomarna om rörelser är uppdaterade (${lessons.length} st).`));
-  if (good) return;
+  updateLessons(settings, name, grade, note).then((lessons) => lessons && toast(`Lärdomarna om rörelser är uppdaterade (${lessons.length} st).`));
+  if (grade === 'up') return;
   if (settings.apiKey && c && characters.includes(c)) {
-    // Be personen göra om rörelsen bättre direkt (samtalet öppnas igen om det var stängt)
+    // Be personen göra om rörelsen direkt (samtalet öppnas igen om det var stängt)
+    const ask =
+      grade === 'close'
+        ? `Rörelsen "${label}" var nästan bra och åt rätt håll${note ? ` – ${note}` : ''}. Behåll det som var bra, justera bara det och gör om den.`
+        : `Rörelsen "${label}" blev inte bra${note ? `: ${note}` : ''}. Gör om den bättre.`;
     if (!chatOpen) openChat(c);
-    if (chatWith === c) setTimeout(() => send(`Rörelsen "${label}" blev inte bra: ${note}. Gör om den bättre.`), chatWith.memory.met ? 300 : 1200);
+    if (chatWith === c) setTimeout(() => send(ask), chatWith.memory.met ? 300 : 1200);
   } else if (!settings.apiKey) {
     toast('Tack för betyget! Med AI-samtal påslaget kan personen göra om rörelsen och lära sig av det.');
   }

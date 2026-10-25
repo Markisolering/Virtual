@@ -34,7 +34,15 @@ export const JOINT_HELP = {
   v_ben_framat: 'vänster ben, som höger',
   v_ben_utat: 'vänster ben, som höger',
   v_kna: 'vänster knä, som höger',
-  hojd: 'hela kroppen upp/ner i centimeter (hopp: +30, sätta sig på huk: -45 tillsammans med böjda knän)',
+  h_axel: 'höger axel: dra upp axeln (positivt), t.ex. 20 för att rycka på axlarna',
+  v_axel: 'vänster axel, som höger',
+  h_fot: 'höger fotled: positivt = tårna uppåt, negativt = sträck foten (tå ner)',
+  v_fot: 'vänster fotled, som höger',
+  hojd: 'flytta hela kroppen upp/ner i centimeter (hopp: +30; huk: -45 med böjda knän; sitta på golvet: ca -85 med benen framåt 90)',
+  kropp_framat: 'flytta hela kroppen framåt (positivt) eller bakåt i centimeter',
+  kropp_sidled: 'flytta hela kroppen åt höger (positivt) eller vänster i centimeter',
+  kropp_lutning: 'luta HELA kroppen runt fötterna: 90 = falla framåt och ligga på magen, -90 = ligga på rygg (lägg till hojd ca 12 så att kroppen ligger ovanpå golvet)',
+  kropp_sida: 'luta hela kroppen åt sidan runt fötterna: 90 = ligga på höger sida, -90 = på vänster sida',
   snurra: 'vrid hela kroppen runt sin egen axel i grader (360 = ett varv)',
 };
 const NUMERIC = Object.keys(JOINT_HELP).filter((k) => !k.endsWith('_hand'));
@@ -124,6 +132,41 @@ export const PRESETS = {
       { tid: 2.5, h_arm_utat: 90, h_armbage: 130, h_arm_vrid: -70, h_hand: 'knytnave', v_arm_utat: 90, v_armbage: 130, v_arm_vrid: -70, v_hand: 'knytnave' },
     ],
   },
+  sitta_pa_golvet: {
+    beskrivning: 'sätter sig på golvet med benen framåt',
+    hela_kroppen: true,
+    hall_kvar: true,
+    nyckelbilder: [
+      { tid: 0.7, hojd: -45, h_ben_framat: 70, v_ben_framat: 70, h_kna: 110, v_kna: 110, overkropp_framat: 25, h_arm_framat: 30, v_arm_framat: 30 },
+      { tid: 1.6, hojd: -80, h_ben_framat: 85, v_ben_framat: 85, h_kna: 10, v_kna: 10, overkropp_framat: -5, h_arm_framat: -25, v_arm_framat: -25, h_armbage: 10, v_armbage: 10, h_fot: -20, v_fot: -20 },
+    ],
+  },
+  ligga_pa_rygg: {
+    beskrivning: 'lägger sig på rygg på golvet',
+    hela_kroppen: true,
+    hall_kvar: true,
+    nyckelbilder: [
+      { tid: 0.6, hojd: -40, h_ben_framat: 60, v_ben_framat: 60, h_kna: 100, v_kna: 100, overkropp_framat: 25 },
+      { tid: 1.6, kropp_lutning: -90, hojd: 13, h_ben_framat: 0, v_ben_framat: 0, h_kna: 0, v_kna: 0, overkropp_framat: 0, h_arm_utat: 15, v_arm_utat: 15, h_fot: -25, v_fot: -25 },
+    ],
+  },
+  ligga_pa_magen: {
+    beskrivning: 'lägger sig på mage på golvet',
+    hela_kroppen: true,
+    hall_kvar: true,
+    nyckelbilder: [
+      { tid: 0.6, hojd: -45, h_kna: 90, v_kna: 90, h_ben_framat: 40, v_ben_framat: 40, overkropp_framat: 30, h_arm_framat: 60, v_arm_framat: 60 },
+      { tid: 1.6, kropp_lutning: 90, hojd: 11, h_kna: 0, v_kna: 0, h_ben_framat: 0, v_ben_framat: 0, overkropp_framat: 0, h_arm_framat: 160, v_arm_framat: 160, h_armbage: 80, v_armbage: 80, huvud_nick: -30, h_fot: -60, v_fot: -60 },
+    ],
+  },
+  sta_pa_kna: {
+    beskrivning: 'ställer sig på knä',
+    hela_kroppen: true,
+    hall_kvar: true,
+    nyckelbilder: [
+      { tid: 0.9, hojd: -48, h_kna: 90, v_kna: 90, h_ben_framat: 0, v_ben_framat: 0, h_fot: -50, v_fot: -50, kropp_framat: -10 },
+    ],
+  },
   fridstecken: {
     beskrivning: 'gör fredstecken med höger hand',
     nyckelbilder: [
@@ -155,6 +198,23 @@ export function findMotion(name) {
   const key = String(name || '').toLowerCase().trim();
   return savedMotions()[key] || PRESETS[key] || null;
 }
+// Läsbara namn på de färdiga rörelserna (de interna namnen saknar å, ä och ö)
+const TITLES = {
+  skaka_pa_huvudet: 'skaka på huvudet',
+  handerna_pa_hoften: 'händerna på höfterna',
+  tumme_upp: 'tumme upp',
+  armarna_i_kors: 'armarna i kors',
+  visa_musklerna: 'visa musklerna',
+  fridstecken: 'fredstecken',
+  sitta_pa_golvet: 'sitta på golvet',
+  ligga_pa_rygg: 'ligga på rygg',
+  ligga_pa_magen: 'ligga på magen',
+  sta_pa_kna: 'stå på knä',
+};
+export function motionTitle(name) {
+  return TITLES[name] || String(name).replace(/_/g, ' ');
+}
+
 export function motionNames() {
   return [...new Set([...Object.keys(PRESETS), ...Object.keys(savedMotions())])];
 }
@@ -163,16 +223,16 @@ export function motionNames() {
 export function cleanMotion(input) {
   if (!input || typeof input !== 'object' || !Array.isArray(input.nyckelbilder)) return null;
   const keys = [];
-  for (const k of input.nyckelbilder.slice(0, 40)) {
+  for (const k of input.nyckelbilder.slice(0, 120)) {
     if (!k || typeof k !== 'object') continue;
     const tid = Number(k.tid);
-    if (!Number.isFinite(tid) || tid < 0 || tid > 20) continue;
+    if (!Number.isFinite(tid) || tid < 0 || tid > 600) continue;
     const key = { tid };
     for (const j of NUMERIC) {
       if (k[j] === undefined) continue;
       const v = Number(k[j]);
       if (!Number.isFinite(v)) continue;
-      const lim = j === 'snurra' ? 1080 : j === 'hojd' ? 60 : 200;
+      const lim = j === 'snurra' ? 3600 : ['hojd', 'kropp_framat', 'kropp_sidled'].includes(j) ? 300 : 360;
       key[j] = Math.max(-lim, Math.min(lim, v));
     }
     for (const side of ['h', 'v']) if (HAND_FORMS.includes(k[`${side}_hand`])) key[`${side}_hand`] = k[`${side}_hand`];
@@ -184,14 +244,18 @@ export function cleanMotion(input) {
     beskrivning: String(input.beskrivning || '').slice(0, 120),
     loop: !!input.loop,
     hela_kroppen: !!input.hela_kroppen,
+    hall_kvar: !!input.hall_kvar,
     nyckelbilder: keys,
   };
 }
 
-// Nyckelbilder där leder som inte nämns behåller sitt värde från förra bilden (startvärde 0)
-function expand(def) {
-  const out = [{ tid: 0 }];
-  let prev = {};
+// Nyckelbilder där leder som inte nämns behåller sitt värde från förra bilden.
+// Rörelsen börjar i den pose personen redan har (from). En helkroppsrörelse beskriver hela posen,
+// så leder den inte nämner går mot neutral; en rörelse för bara t.ex. armarna läggs ovanpå posen
+// personen redan har (vinka liggande på golvet).
+function expand(def, from = {}) {
+  const out = [{ ...from, tid: 0 }];
+  let prev = def.hela_kroppen ? {} : { ...from };
   for (const k of def.nyckelbilder) {
     const full = { ...prev, ...k };
     out.push(full);
@@ -226,10 +290,15 @@ export function sampleMotion(frames, t) {
 }
 
 // Gör en rörelse redo att spelas på en viss rigg
-export function prepareMotion(def, rig) {
-  const frames = expand(def);
+// prev = rörelsen som pågår just nu; den nya börjar då från dess pose så att övergången blir mjuk
+export function prepareMotion(def, rig, prev = null) {
+  const from = prev?.pose || {};
+  const frames = expand(def, from);
   const duration = frames[frames.length - 1].tid;
-  return { def, frames, duration, used: rig.usedBones(def), usesHead: def.nyckelbilder.some((k) => Object.keys(k).some((j) => j.startsWith('huvud'))) };
+  const used = rig.usedBones(def);
+  if (prev) for (const b of prev.used) used.add(b);
+  const usesHead = def.nyckelbilder.some((k) => Object.keys(k).some((j) => j.startsWith('huvud'))) || !!prev?.usesHead;
+  return { def, frames, duration, used, usesHead, wholeBody: !!def.hela_kroppen || !!prev?.wholeBody };
 }
 
 // ---------------- Rigg ----------------
@@ -260,11 +329,13 @@ export class MotionRig {
     this.model = model;
     const get = (n) => nodes[n];
     const side = (s) => ({
+      clavicle: get(`Bip01_${s}_Clavicle`),
       upper: get(`Bip01_${s}_UpperArm`),
       fore: get(`Bip01_${s}_Forearm`),
       hand: get(`Bip01_${s}_Hand`),
       thigh: get(`Bip01_${s}_Thigh`),
       calf: get(`Bip01_${s}_Calf`),
+      foot: get(`Bip01_${s}_Foot`),
       fingers: [0, 1, 2, 3, 4].map((f) => [get(`Bip01_${s}_Finger${f}`), get(`Bip01_${s}_Finger${f}1`), get(`Bip01_${s}_Finger${f}2`)].filter(Boolean)),
     });
     this.b = {
@@ -275,6 +346,8 @@ export class MotionRig {
       R: side('R'),
       L: side('L'),
     };
+    // Hela kroppen vrids i ordningen snurr, lutning framåt/bakåt, lutning åt sidan
+    model.rotation.order = 'YXZ';
     model.updateMatrixWorld(true);
     // Neutral lokal rotation och "personens riktningar" uttryckta i varje bens koordinater
     this.neutral = new Map();
@@ -282,7 +355,7 @@ export class MotionRig {
     const all = [this.b.pelvis, ...this.b.spine, this.b.neck, this.b.head];
     for (const s of ['R', 'L']) {
       const x = this.b[s];
-      all.push(x.upper, x.fore, x.hand, x.thigh, x.calf, ...x.fingers.flat());
+      all.push(x.clavicle, x.upper, x.fore, x.hand, x.thigh, x.calf, x.foot, ...x.fingers.flat());
     }
     for (const bone of all.filter(Boolean)) {
       this.neutral.set(bone, bone.quaternion.clone());
@@ -330,7 +403,19 @@ export class MotionRig {
       if (has(new RegExp(`^${p}_hand$`))) x.fingers.flat().forEach((b) => used.add(b));
       if (def.hela_kroppen || has(new RegExp(`^${p}_(ben|kna)`))) [x.thigh, x.calf].forEach((b) => used.add(b));
     }
-    if (def.hela_kroppen) this.b.spine.forEach((b) => used.add(b));
+    for (const [p, s] of [['h', 'R'], ['v', 'L']]) {
+      const x = this.b[s];
+      if (has(new RegExp(`^${p}_axel`))) used.add(x.clavicle);
+      if (has(new RegExp(`^${p}_fot`))) used.add(x.foot);
+    }
+    // Helkroppsrörelser styr hela skelettet, så att inget av den vanliga animationen ligger kvar
+    if (def.hela_kroppen) {
+      [this.b.pelvis, ...this.b.spine, this.b.neck, this.b.head].forEach((b) => used.add(b));
+      for (const s of ['R', 'L']) {
+        const x = this.b[s];
+        [x.clavicle, x.upper, x.fore, x.hand, x.thigh, x.calf, x.foot].forEach((b) => used.add(b));
+      }
+    }
     used.delete(undefined);
     return used;
   }
@@ -361,6 +446,7 @@ export class MotionRig {
     // 3. Armar och ben, i förhållande till överkroppen respektive bäckenet
     for (const [p, s, sign] of [['h', 'R', -1], ['v', 'L', 1]]) {
       const x = this.b[s];
+      if (x.clavicle) this.rotate(x.clavicle, this.axis(top, FWD), sign * v(`${p}_axel`));
       if (x.upper) {
         this.rotate(x.upper, this.axis(top, FWD), sign * v(`${p}_arm_utat`));
         this.rotate(x.upper, this.axis(top, RIGHT), v(`${p}_arm_framat`));
@@ -377,6 +463,7 @@ export class MotionRig {
         this.rotate(x.thigh, this.axis(pelvis, RIGHT), v(`${p}_ben_framat`));
       }
       if (x.calf) this.rotate(x.calf, this.axis(x.thigh, RIGHT), -v(`${p}_kna`));
+      if (x.foot) this.rotate(x.foot, this.axis(x.calf, RIGHT), v(`${p}_fot`));
 
       // Fingrar: böj varje led runt axeln tvärs över handflatan
       const form = FORMS[pose[`${p}_hand`]];
@@ -393,14 +480,14 @@ export class MotionRig {
       }
     }
 
-    // 4. Hela kroppen: höjd och snurr
-    this.model.position.y = (v('hojd') / 100) * 1;
-    this.model.rotation.y = v('snurra') * DEG;
+    // 4. Hela kroppen: förflyttning, snurr och lutning (runt fötterna). Personen tittar längs +z; höger är -x.
+    this.model.position.set(-v('kropp_sidled') / 100, v('hojd') / 100, v('kropp_framat') / 100);
+    this.model.rotation.set(v('kropp_lutning') * DEG, v('snurra') * DEG, v('kropp_sida') * DEG);
   }
 
   reset() {
-    this.model.position.y = 0;
-    this.model.rotation.y = 0;
+    this.model.position.set(0, 0, 0);
+    this.model.rotation.set(0, 0, 0);
   }
 }
 
@@ -414,7 +501,9 @@ export const MOTION_TOOL = {
   description: `Skapa och utför en egen kroppsrörelse när spelaren ber om något som inte finns bland handlingarna i gor_handling (t.ex. "peka på fönstret", "gör en karatespark", "visa hur stor fisken var", "gör en honnör").
 Beskriv rörelsen som nyckelbilder: tid i sekunder från start plus vinklar i grader för de leder som ska röra sig. Alla vinklar utgår från att personen står rakt med armarna hängande längs sidorna (värde 0). Leder som inte anges i en nyckelbild behåller värdet från förra nyckelbilden. Efter sista bilden går personen mjukt tillbaka till sin vanliga pose.
 Tips: 0,3–0,6 s mellan bilder ger naturligt tempo. Upprepa bilder för att hålla en pose. Vinka = arm_utat ca 150 och växla armbage mellan 20 och 60. Peka framåt = arm_framat 85 och hand "peka".
-Sätt hela_kroppen till true om benen eller hojd/snurra används; annars fortsätter benen som vanligt (och rörelsen går att göra sittande).
+Det finns inga begränsningar: med hela_kroppen = true styr du hela skelettet fritt (den vanliga animationen stängs av), och med kropp_lutning/kropp_sida/hojd/kropp_framat/kropp_sidled kan kroppen ligga ner, sitta på golvet, stå på knä, rulla, stå på händer osv. Sätt hela_kroppen = true så fort benen, höjden eller kroppens lutning används; annars fortsätter benen som vanligt (och rörelsen går att göra sittande).
+Sätt hall_kvar = true om personen ska stanna kvar i sista posen (t.ex. ligga kvar på golvet) tills spelaren ber om något annat. Nästa rörelse börjar mjukt från den posen, så en ny rörelse som t.ex. "res dig från golvet" kan börja i liggande pose.
+Recept: ligga på rygg = kropp_lutning -90, hojd 13. Ligga på mage = kropp_lutning 90, hojd 11. Sitta på golvet = hojd -86, ben_framat 85 (båda), kna 10. Stå på knä = hojd -48, kna 90 (båda), fot -50.
 Ge rörelsen ett kort namn (små bokstäver, understreck) så sparas den och kan göras igen med spela_rorelse.
 Exempel (vinka med höger hand): {"namn":"vinka_glatt","beskrivning":"vinkar glatt","loop":false,"hela_kroppen":false,"nyckelbilder":[{"tid":0.4,"h_arm_utat":150,"h_armbage":30,"h_hand":"oppen"},{"tid":0.7,"h_armbage":60},{"tid":1.0,"h_armbage":25},{"tid":1.3,"h_armbage":60},{"tid":1.6,"h_armbage":25}]}`,
   input_schema: {
@@ -423,7 +512,8 @@ Exempel (vinka med höger hand): {"namn":"vinka_glatt","beskrivning":"vinkar gla
       namn: { type: 'string', description: 'kort namn, t.ex. honnor eller karatespark' },
       beskrivning: { type: 'string', description: 'vad rörelsen föreställer, några ord' },
       loop: { type: 'boolean', description: 'upprepa rörelsen en stund (t.ex. för dans eller jubel)' },
-      hela_kroppen: { type: 'boolean' },
+      hela_kroppen: { type: 'boolean', description: 'styr hela kroppen (ben, höjd, lutning); den vanliga animationen stängs av' },
+      hall_kvar: { type: 'boolean', description: 'stanna kvar i sista posen tills spelaren ber om något annat' },
       nyckelbilder: {
         type: 'array',
         items: { type: 'object', properties: { tid: { type: 'number' }, ...jointProps }, required: ['tid'] },

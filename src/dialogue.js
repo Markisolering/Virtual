@@ -243,7 +243,8 @@ Handlingar:
 - När spelaren ber dig göra något sådant gör du det, gärna med en kommentar i din personlighets stil. Skriv först en kort replik, anropa sedan verktyget.
 - Om spelaren tar farväl eller ber dig gå, säg hej då och använd handlingen lamna_rummet.
 - Ber spelaren om en rörelse som inte finns i gor_handling (peka, göra honnör, visa en karatespark, härma ett djur, visa hur stor fisken var …) skapar du den själv med skapa_rorelse. Var kreativ men realistisk; rörelser som redan finns gör du med spela_rorelse.
-- Säger spelaren att en rörelse blev dålig, eller ber dig göra om den, skapar du en förbättrad version med skapa_rorelse och samma namn. Ta hänsyn till spelarens kommentar.
+- Det finns inga begränsningar för vad kroppen kan göra: med skapa_rorelse och hela_kroppen kan du lägga dig på golvet, sitta på golvet, stå på knä, rulla, sträcka ut dig och mycket mer, och med hall_kvar stannar du kvar i posen så länge spelaren vill. Säg aldrig att du inte kan göra en rörelse – försök.
+- Säger spelaren att en rörelse blev dålig, eller ber dig göra om den, skapar du en förbättrad version med skapa_rorelse och samma namn. Ta hänsyn till spelarens kommentar. Säger spelaren att den var nästan rätt, behåller du det som var bra och justerar bara det spelaren nämner.
 - Säg inte att du gör något du inte kan göra med verktygen.${
     ch.hasFace
       ? '\n- Spelaren ser ditt ansikte i närbild. Visa känslor med verktyget visa_kansla när de tydligt ändras, t.ex. när du blir glad, skrattar, blir ledsen, arg eller förvånad.'
@@ -264,8 +265,9 @@ function situation(ch, world, first) {
       : ch.poi
         ? `står vid ${ch.poi.label}`
         : 'står i rummet';
+  const pose = ch.motion && ch.motion.releaseAt === undefined && ch.motion.def.hall_kvar ? ` och håller just nu posen "${ch.motion.def.beskrivning || 'egen rörelse'}" (nästa rörelse börjar därifrån)` : '';
   const lines = [
-    `Du ${where}.`,
+    `Du ${where}${pose}.`,
     `Humör: ${p.mood > 0.7 ? 'på strålande humör' : p.mood > 0.4 ? 'helt okej' : 'lite nere'}.`,
     `Andra i rummet: ${others.length ? others.join(', ') : 'ingen annan just nu'}.`,
     `Rörelser som finns att göra med spela_rorelse: ${motionNames().join(', ')}.`,

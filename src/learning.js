@@ -47,12 +47,11 @@ export function resetLearning() {
   }
 }
 
-// Spara ett betyg. good = true/false, note = valfri kommentar om vad som var fel.
-export function rateMotion(name, good, note) {
+// Spara ett betyg. grade = 'up' (bra), 'close' (inte bra, men åt rätt håll) eller 'down' (dålig).
+export function rateMotion(name, grade, note) {
   const all = ratings();
-  const r = all[name] || { up: 0, down: 0, notes: [] };
-  if (good) r.up++;
-  else r.down++;
+  const r = { up: 0, close: 0, down: 0, notes: [], ...all[name] };
+  r[grade] = (r[grade] || 0) + 1;
   if (note) r.notes = [...r.notes, note].slice(-6);
   r.last = Date.now();
   all[name] = r;
@@ -98,7 +97,9 @@ export function motionGuide() {
 // Låter Claude sammanfatta betygen till konkreta, generella lärdomar om hur vinklarna ska sättas.
 let coachBusy = false;
 
-export async function updateLessons(settings, name, good, note) {
+const GRADE_TEXT = { up: 'tummen upp (bra)', close: 'nästan (inte bra, men åt rätt håll – justera, gör inte om från början)', down: 'tummen ner (dålig)' };
+
+export async function updateLessons(settings, name, grade, note) {
   if (!settings.apiKey || coachBusy) return null;
   const def = findMotion(name);
   if (!def) return null;
@@ -126,8 +127,8 @@ ${motionLessons().map((l) => `- ${l}`).join('\n') || '(inga ännu)'}
 Rörelse: ${name} (${def.beskrivning || ''})
 ${compact(def)}
 
-Spelarens betyg nu: ${good ? 'tummen upp (bra)' : 'tummen ner (dålig)'}${note ? `. Kommentar: ${note}` : ''}
-Tidigare betyg för rörelsen: ${r.up || 0} upp, ${r.down || 0} ner${r.notes?.length ? `, kommentarer: ${r.notes.join('; ')}` : ''}`,
+Spelarens betyg nu: ${GRADE_TEXT[grade]}${note ? `. Kommentar: ${note}` : ''}
+Tidigare betyg för rörelsen: ${r.up || 0} bra, ${r.close || 0} nästan, ${r.down || 0} dåliga${r.notes?.length ? `, kommentarer: ${r.notes.join('; ')}` : ''}`,
         },
       ],
     });
