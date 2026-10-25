@@ -535,3 +535,71 @@ body.has-update #toast {
   border-color: var(--accent);
   background: rgba(231, 166, 90, 0.12);
 }
+
+/* ---------- Betyg på rörelser ---------- */
+.rate {
+  align-self: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 92%;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px dashed rgba(231, 166, 90, 0.5);
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.rate b {
+  color: var(--text);
+}
+.rate-buttons,
+.rate-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rate button {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 13.5px;
+}
+.rate-buttons button {
+  font-size: 18px;
+  padding: 4px 12px;
+}
+.rate.done {
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* ---------- Inlärning i inställningarna ---------- */
+.learn {
+  margin: 4px 0 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+  color: var(--muted);
+}
+.learn details {
+  margin: 6px 0;
+}
+.learn summary {
+  cursor: pointer;
+  color: var(--text);
+}
+.learn ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  line-height: 1.4;
+  max-height: 180px;
+  overflow-y: auto;
+}
+#learn-reset {
+  padding: 7px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+}

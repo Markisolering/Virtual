@@ -8,7 +8,8 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { buildRoom, SPAWN, DOOR, ROOM } from './room.js';
 import { Nav } from './nav.js';
 import { Character, angleDiff, library } from './characters.js';
-import { OfflineBrain, ClaudeBrain, loadSettings, saveSettings, DEFAULT_MODEL } from './dialogue.js';
+import { OfflineBrain, ClaudeBrain, loadSettings, saveSettings, DEFAULT_MODEL, apiMessage } from './dialogue.js';
+import { rateMotion, updateLessons, motionLessons, learnedCount, resetLearning } from './learning.js';
 import { parseCommand, commandReply } from './commands.js';
 import { PRESETS } from './motion.js';
 
@@ -529,8 +530,9 @@ async function send(text) {
       );
     } catch (err) {
       console.error(err);
-      const status = err?.status ? ` (${err.status})` : '';
-      addMsg(`Kunde inte nå Claude${status}. Den inbyggda samtalsmotorn svarar i stället.`, 'sys');
+      // Visa API:ts eget felmeddelande (förkortat) så att felet går att förstå
+      const detail = err?.status ? ` (${err.status}: ${apiMessage(err).slice(0, 140)})` : '';
+      addMsg(`Kunde inte nå Claude${detail}. Den inbyggda samtalsmotorn svarar i stället.`, 'sys');
     }
   }
   if (!result) {
@@ -554,6 +556,8 @@ async function send(text) {
     if (settings.apiKey && result.text) for (const o of outcomes) if (!o.res.ok) say(c, commandReply(c.persona, o.cmd, o.res));
   }
   busy = false;
+  // Låt spelaren betygsätta varje rörelse som personen gjorde
+  for (const o of outcomes) if (o.cmd.action === 'rorelse' && o.res.ok && o.cmd.name && chatWith === c) addRating(c, o.cmd.name);
   const did = (action) => outcomes.some((o) => o.cmd.action === action && o.res.ok);
   if (result.leave) {
     leaveAfterChat = true;
@@ -572,8 +576,80 @@ async function send(text) {
 
 $('chat-form').addEventListener('submit', (e) => {
   e.preventDefault();
-  send($('chat-input').value);
+  const text = $('chat-input').value.trim();
+  if (feedbackFor && text) {
+    // Spelaren skriver vad som var fel med en rörelse
+    const name = feedbackFor;
+    feedbackFor = null;
+    $('chat-input').placeholder = 'Säg något eller be om något…';
+    $('chat-input').value = '';
+    giveFeedback(name, false, text);
+    return;
+  }
+  send(text);
 });
+
+// ---------------- Betyg på rörelser ----------------
+let feedbackFor = null;
+const PROBLEMS = ['Fel position', 'För snabb', 'För långsam', 'För stel', 'Helt fel rörelse'];
+
+function addRating(c, name) {
+  const card = document.createElement('div');
+  card.className = 'rate';
+  const label = name.replace(/_/g, ' ');
+  card.innerHTML = `<span>Hur blev <b></b>?</span><div class="rate-buttons"><button type="button" data-v="up" aria-label="Bra">👍</button><button type="button" data-v="down" aria-label="Dålig">👎</button></div>`;
+  card.querySelector('b').textContent = label;
+  const done = (text) => {
+    card.innerHTML = '';
+    const span = document.createElement('span');
+    span.textContent = text;
+    card.appendChild(span);
+    card.classList.add('done');
+  };
+  card.querySelector('[data-v="up"]').addEventListener('click', () => {
+    done(`👍 Tack! "${label}" blir en förebild för nya rörelser.`);
+    giveFeedback(name, true);
+  });
+  card.querySelector('[data-v="down"]').addEventListener('click', () => {
+    // Fråga vad som var fel
+    card.innerHTML = '<span>Vad var fel?</span><div class="rate-chips"></div>';
+    const chips = card.querySelector('.rate-chips');
+    for (const p of [...PROBLEMS, 'Annat…']) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = p;
+      b.addEventListener('click', () => {
+        if (p === 'Annat…') {
+          done('👎 Skriv vad som var fel i rutan nedan.');
+          feedbackFor = name;
+          $('chat-input').placeholder = `Vad var fel med "${label}"?`;
+          $('chat-input').focus();
+          return;
+        }
+        done(`👎 ${p}`);
+        giveFeedback(name, false, p.toLowerCase());
+      });
+      chips.appendChild(b);
+    }
+    log.scrollTop = log.scrollHeight;
+  });
+  log.appendChild(card);
+  log.scrollTop = log.scrollHeight;
+}
+
+function giveFeedback(name, good, note) {
+  rateMotion(name, good, note);
+  const label = name.replace(/_/g, ' ');
+  // Rörelsecoachen sammanfattar betygen till lärdomar i bakgrunden
+  updateLessons(settings, name, good, note).then((lessons) => lessons && toast(`Lärdomarna om rörelser är uppdaterade (${lessons.length} st).`));
+  if (good) return;
+  if (settings.apiKey && chatWith) {
+    // Be personen göra om rörelsen bättre direkt
+    send(`Rörelsen "${label}" blev inte bra: ${note}. Gör om den bättre.`);
+  } else {
+    addMsg('Tack för betyget! Med AI-samtal påslaget kan personen göra om rörelsen och lära sig av det.', 'sys');
+  }
+}
 $('chat-close').addEventListener('click', closeChat);
 
 // ---------------- Vilka som syns ----------------
@@ -658,6 +734,7 @@ function openSettings() {
   $('set-mode').value = settings.mode || 'room';
   $('set-key').value = settings.apiKey || '';
   $('set-model').value = settings.model || DEFAULT_MODEL;
+  fillLearning();
   $('settings').hidden = false;
 }
 $('start-settings').addEventListener('click', openSettings);
@@ -666,6 +743,26 @@ $('settings-btn').addEventListener('click', () => {
   openSettings();
 });
 $('set-cancel').addEventListener('click', () => ($('settings').hidden = true));
+
+// Vad personerna har lärt sig, i inställningarna
+function fillLearning() {
+  const n = learnedCount();
+  $('learn-summary').textContent = `Inlärda rörelser: ${n.motions} · betygsatta: ${n.rated} · lärdomar: ${n.lessons}`;
+  const ul = $('learn-lessons');
+  ul.innerHTML = '';
+  for (const l of motionLessons()) {
+    const li = document.createElement('li');
+    li.textContent = l;
+    ul.appendChild(li);
+  }
+  if (!ul.children.length) ul.innerHTML = '<li>Inga lärdomar ännu. Betygsätt rörelser i chatten så samlas de här.</li>';
+}
+$('learn-reset').addEventListener('click', () => {
+  if (!confirm('Glömma alla inlärda rörelser, betyg och lärdomar?')) return;
+  resetLearning();
+  fillLearning();
+  toast('Allt inlärt om rörelser är borttaget.');
+});
 $('set-save').addEventListener('click', () => {
   const prevShow = settings.show;
   const prevMode = settings.mode;
