@@ -416,6 +416,11 @@ export class Character {
   }
 
   update(dt, world) {
+    // I redigeraren står personen still i den pose spelaren justerar
+    if (this.editing) {
+      this.applyEditPose();
+      return;
+    }
     this.age += dt;
     this.timer -= dt;
     const { player } = world;
@@ -638,6 +643,29 @@ export class Character {
     this.gesture = { clip, until: def.loop ? this.age + def.loop : Infinity };
     this.commandActive = true;
     if (GESTURE_FACE[clip]) this.setExpression(GESTURE_FACE[clip], def.loop || action.getClip().duration);
+  }
+
+  // ---------- Redigeraren (spelaren visar hur rörelsen ska se ut) ----------
+  startEdit(def, used) {
+    this.stopMotion();
+    this.editing = true;
+    this.editUsed = used;
+    this.path = null;
+    if (!this.seated) this.state = 'idle';
+    this.holdUntil = Math.max(this.holdUntil, this.age + 120);
+    this.speaking = 0;
+  }
+
+  // Lägg posen på skelettet (används både för att visa den och för att prova varianter)
+  applyEditPose(pose = this.editPose) {
+    this.root.updateMatrixWorld(true);
+    this.rig.apply(pose || {}, this.editUsed, 1);
+  }
+
+  endEdit() {
+    this.editing = false;
+    this.editPose = null;
+    this.rig.reset();
   }
 
   // ---------- Egna rörelser ----------
