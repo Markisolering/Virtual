@@ -1,7 +1,24 @@
 // Handlingar som spelaren kan be personerna om, t.ex. "sätt dig i soffan", "följ mig" eller "dansa".
 // Används både av den inbyggda samtalsmotorn (tolkar texten själv) och av Claude (via ett verktyg).
 
+import { PRESETS, savedMotions } from './motion.js';
+
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+// Färdiga egna rörelser som den inbyggda motorn känner igen
+const MOTION_PHRASES = [
+  [/\bpeka\b/, 'peka'],
+  [/\btummen? upp\b/, 'tumme_upp'],
+  [/\b(buga|bocka|niga)\b/, 'buga'],
+  [/\bnicka\b/, 'nicka'],
+  [/\bskaka på huvudet\b/, 'skaka_pa_huvudet'],
+  [/\b(armarna i kors|korsa armarna)\b/, 'armarna_i_kors'],
+  [/\bhänderna på höfterna?\b/, 'handerna_pa_hoften'],
+  [/\bhoppa\b/, 'hoppa'],
+  [/\b(snurra|gör ett varv)\b/, 'snurra'],
+  [/\b(visa (dina )?muskler(na)?|spänn musklerna|flexa)\b/, 'visa_musklerna'],
+  [/\b(fredstecken|fridstecken|peace)\b/, 'fridstecken'],
+];
 
 // Platser i rummet. `seat` matchar sittplatsernas etikett, `poi` de platser man kan ställa sig vid.
 export const PLACES = {
@@ -100,6 +117,12 @@ export function parseCommand(raw) {
     [/\b(tänk efter|fundera)\b/, 'fundera'],
     [/\b(gå|spring|ställ dig|ta dig) (till|vid|bort till|fram till|mot|in i|ut i)\b/, 'ga_till'],
   ];
+  // Rörelser som personerna har lärt sig tidigare (skapade av Claude), t.ex. "gör karatesparken"
+  for (const [name, def] of Object.entries(savedMotions())) {
+    const words = name.replace(/_/g, ' ');
+    if (words.length > 2 && t.includes(words)) return { action: 'rorelse', place: null, motion: def, name };
+  }
+  for (const [re, name] of MOTION_PHRASES) if (re.test(t)) return { action: 'rorelse', place: null, motion: PRESETS[name], name };
   for (const [re, action] of rules) {
     if (re.test(t)) {
       // "ställ dig vid fönstret" är en förflyttning, inte att resa sig
@@ -141,6 +164,7 @@ const DOING = {
   sitt_pa_huk: () => '*sätter sig på huk*',
   ta_foto: () => 'Le! *tar en bild*',
   fundera: () => 'Hmm, låt mig tänka…',
+  rorelse: (p, at, cmd) => `*${cmd.motion?.beskrivning || cmd.name || 'gör det'}*`,
 };
 
 const FAIL = {
@@ -155,11 +179,12 @@ export function commandReply(persona, cmd, result) {
   const place = cmd.place ? PLACES[cmd.place] : null;
   if (!result.ok) return FAIL[result.reason]?.(place?.name, place?.at) || 'Det går inte just nu.';
   const yes = cmd.action === 'lamna_rummet' ? '' : `${pick(YES[persona.personality.id] || YES.vänlig)} `;
-  return `${yes}${DOING[cmd.action](place?.name, place?.at)}`;
+  return `${yes}${DOING[cmd.action](place?.name, place?.at, cmd)}`;
 }
 
 // Text som Claude får tillbaka om hur det gick
 export function commandResultText(cmd, result) {
+  if (result.ok && cmd.action === 'rorelse') return `Klart: rörelsen ${cmd.name || ''} spelas upp${cmd.saved ? ' och är sparad' : ''}.`;
   if (result.ok) return `Klart: ${cmd.action}${cmd.place ? ` (${PLACES[cmd.place].name})` : ''}.`;
   return `Gick inte: ${cmd.action} (${result.reason}). Förklara det kort för spelaren.`;
 }

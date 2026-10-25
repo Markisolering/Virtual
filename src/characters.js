@@ -5,6 +5,7 @@ import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { SPAWN } from './room.js';
 import { makePersona } from './persona.js';
 import { GESTURES, PLACES } from './commands.js';
+import { MotionRig, prepareMotion, sampleMotion } from './motion.js';
 
 export { PERSONALITIES } from './persona.js';
 
@@ -323,6 +324,11 @@ export class Character {
     });
     this.current = null;
     this.play('idle1', 0);
+    // Neutral stående pose (första bilden i viloanimationen) för egna rörelser
+    this.mixer.update(0);
+    model.updateMatrixWorld(true);
+    this.rig = new MotionRig(model, nodes);
+    this.motion = null;
     this.actions.idle1.time = Math.random() * this.actions.idle1.getClip().duration;
 
     this.mixer.update(0);
@@ -633,6 +639,35 @@ export class Character {
     if (GESTURE_FACE[clip]) this.setExpression(GESTURE_FACE[clip], def.loop || action.getClip().duration);
   }
 
+  // ---------- Egna rörelser ----------
+  playMotion(def) {
+    this.motion = { ...prepareMotion(def, this.rig), t: 0 };
+    this.commandActive = true;
+  }
+
+  stopMotion() {
+    this.motion = null;
+    this.rig.reset();
+    this.commandActive = false;
+  }
+
+  updateMotion(dt) {
+    const m = this.motion;
+    if (!m) return;
+    m.t += dt;
+    const FADE_IN = 0.3;
+    const FADE_OUT = 0.45;
+    // Loopande rörelser upprepas i minst 6 sekunder (högst tre varv)
+    const playFor = m.def.loop ? Math.max(m.duration, Math.min(m.duration * 3, 6)) : m.duration;
+    if (m.t > playFor + FADE_OUT) {
+      this.stopMotion();
+      return;
+    }
+    const w = Math.min(1, m.t / FADE_IN, m.t < playFor ? 1 : 1 - (m.t - playFor) / FADE_OUT);
+    const local = m.def.loop && m.duration > 0 ? Math.min(m.t, playFor) % m.duration : Math.min(m.t, m.duration);
+    this.rig.apply(sampleMotion(m.frames, local), m.used, Math.max(0, w));
+  }
+
   // ---------- Ansikte ----------
   get hasFace() {
     return this.faceMeshes.length > 0;
@@ -731,6 +766,7 @@ export class Character {
     const gesture = GESTURES[a];
     this.pendingGesture = null;
     if (this.gesture) this.endGesture();
+    if (this.motion) this.stopMotion();
     // Avbryt en pågående väg till en stol
     if (this.state === 'toSeat' && this.seat) {
       if (this.seat.occupant === this) this.seat.occupant = null;
@@ -738,7 +774,11 @@ export class Character {
     }
     if (a === 'satt_dig' && this.seated && (!place || place.seat === this.seat?.label)) return { ok: false, reason: 'already' };
     // Det mesta kräver att personen står upp först
-    const needsStanding = !['stanna', 'sluta_folja', 'res_dig'].includes(a) && !(gesture && gesture.seatedClip) && !(a === 'satt_dig' && this.seat && place?.seat === this.seat.label);
+    // Egna rörelser för överkroppen går att göra sittande
+    const needsStanding =
+      a === 'rorelse'
+        ? !!cmd.motion?.hela_kroppen
+        : !['stanna', 'sluta_folja', 'res_dig'].includes(a) && !(gesture && gesture.seatedClip) && !(a === 'satt_dig' && this.seat && place?.seat === this.seat.label);
     if (this.seated && needsStanding) {
       if (a === 'satt_dig') {
         const target = this.pickSeat(seats, place);
@@ -837,6 +877,19 @@ export class Character {
         this.commandActive = true;
         return { ok: true };
       }
+      case 'rorelse': {
+        if (!cmd.motion) return { ok: false, reason: 'unknown' };
+        if (!this.seated) {
+          // Stanna där personen är och gör rörelsen
+          this.following = false;
+          this.path = null;
+          this.state = 'idle';
+          this.holdUntil = Math.max(this.holdUntil, this.age + 30);
+          this.timer = Math.max(this.timer, 30);
+        }
+        this.playMotion(cmd.motion);
+        return { ok: true };
+      }
       default: {
         if (!gesture) return { ok: false, reason: 'unknown' };
         if (this.seated) {
@@ -872,6 +925,7 @@ export class Character {
     this.sitAmount += ((seated ? 1 : 0) - this.sitAmount) * Math.min(1, dt * 2.5);
     this.walkAmount += ((moving ? 1 : 0) - this.walkAmount) * Math.min(1, dt * 6);
     this.clipTimer -= dt;
+    if (moving && this.motion?.def.hela_kroppen) this.stopMotion();
     if (this.gesture) {
       if (moving || this.age > this.gesture.until) this.endGesture();
       else return;
@@ -912,6 +966,7 @@ export class Character {
     b.eyes.forEach((e, i) => e.quaternion.copy(this.rest.eyes[i]));
     this.mixer.update(dt);
     this.root.updateMatrixWorld(true);
+    this.updateMotion(dt);
 
     // Huvud och nacke vänds mot det personen tittar på. Korrigeringen räknas från huvudets
     // faktiska riktning i animationen, så att personen får riktig ögonkontakt.
@@ -926,7 +981,7 @@ export class Character {
         Math.atan2(_v2.y, Math.hypot(_v2.x, _v2.z)) - Math.asin(Math.max(-1, Math.min(1, fwd.y))),
       ];
     };
-    if (this.lookTarget && b.head) {
+    if (this.lookTarget && b.head && !this.motion?.usesHead) {
       const toTarget = Math.atan2(this.lookTarget.x - this.position.x, this.lookTarget.z - this.position.z);
       // Mål bakom ryggen ignoreras; då vrider man hellre hela kroppen
       if (Math.abs(angleDiff(this.heading, toTarget)) < 1.6) [yaw, pitch] = aim(b.head, this.headForward);

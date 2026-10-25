@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ACTION_TOOL, EMOTION_TOOL, EMOTIONS, validCommand, commandResultText } from './commands.js';
+import { MOTION_TOOL, PLAY_MOTION_TOOL, cleanMotion, findMotion, saveMotion, motionNames } from './motion.js';
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -246,7 +247,9 @@ Handlingar:
 - Du kan röra dig och göra saker i rummet med verktyget gor_handling: sätta dig, resa dig, gå till en plats, komma fram till spelaren, följa efter spelaren, stanna, lämna rummet, eller gester som att vinka, dansa, klappa händerna, jubla, skratta, rycka på axlarna, sträcka på dig, gäspa, sätta dig på huk, ta ett foto eller fundera.
 - När spelaren ber dig göra något sådant gör du det, gärna med en kommentar i din personlighets stil. Skriv först en kort replik, anropa sedan verktyget.
 - Om spelaren tar farväl eller ber dig gå, säg hej då och använd handlingen lamna_rummet.
-- Säg inte att du gör något du inte kan göra med verktyget.${
+- Ber spelaren om en rörelse som inte finns i gor_handling (peka, göra honnör, visa en karatespark, härma ett djur, visa hur stor fisken var …) skapar du den själv med skapa_rorelse. Var kreativ men realistisk; rörelser som redan finns gör du med spela_rorelse.
+- Rörelser som redan finns: ${motionNames().join(', ')}.
+- Säg inte att du gör något du inte kan göra med verktygen.${
     ch.hasFace
       ? '\n- Spelaren ser ditt ansikte i närbild. Visa känslor med verktyget visa_kansla när de tydligt ändras, t.ex. när du blir glad, skrattar, blir ledsen, arg eller förvånad.'
       : ''
@@ -279,7 +282,7 @@ export class ClaudeBrain {
         betas: ['server-side-fallback-2026-07-01'],
         fallbacks: 'default',
         system: systemPrompt(ch, world),
-        tools: ch.hasFace ? [ACTION_TOOL, EMOTION_TOOL] : [ACTION_TOOL],
+        tools: [ACTION_TOOL, MOTION_TOOL, PLAY_MOTION_TOOL, ...(ch.hasFace ? [EMOTION_TOOL] : [])],
         messages: ch.history,
       });
       stream.on('text', (delta) => {
@@ -302,6 +305,22 @@ export class ClaudeBrain {
     const results = [];
     for (const block of final.content) {
       if (block.type !== 'tool_use') continue;
+      if (block.name === MOTION_TOOL.name || block.name === PLAY_MOTION_TOOL.name) {
+        // Ny rörelse sparas under sitt namn; en befintlig hämtas från biblioteket
+        const creating = block.name === MOTION_TOOL.name;
+        const name = String(block.input?.namn || '').toLowerCase().trim().replace(/[^a-z0-9åäö_]+/g, '_').slice(0, 40);
+        const motion = final.stop_reason === 'max_tokens' ? null : creating ? cleanMotion(block.input) : findMotion(name);
+        if (!motion || !name) {
+          results.push({ type: 'tool_result', tool_use_id: block.id, content: creating ? 'Rörelsen gick inte att tolka; kontrollera nyckelbilderna.' : `Rörelsen "${name}" finns inte.`, is_error: true });
+          continue;
+        }
+        if (creating) saveMotion(name, motion);
+        const cmd = { action: 'rorelse', place: null, motion, name, saved: creating };
+        const res = execute(cmd);
+        outcomes.push({ cmd, res });
+        results.push({ type: 'tool_result', tool_use_id: block.id, content: commandResultText(cmd, res), ...(res.ok ? {} : { is_error: true }) });
+        continue;
+      }
       if (block.name === EMOTION_TOOL.name) {
         const emotion = final.stop_reason !== 'max_tokens' && EMOTIONS[block.input?.kansla];
         if (emotion) feel(emotion);

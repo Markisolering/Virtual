@@ -71,6 +71,14 @@ Skriv vad du vill att personen ska göra, eller använd snabbknapparna i chatten
 
 Personerna svarar i sin egen stil; en grinig person suckar men gör det ändå. Med AI-samtal påslaget förstår de friare formuleringar ("orkar du inte sätta dig en stund?") eftersom Claude själv väljer handling via verktyget `gor_handling`.
 
+## Egna rörelser som AI:n hittar på
+
+Med AI-samtal påslaget kan personerna göra i princip vilken kroppsrörelse du ber om: "gör honnör", "visa hur stor fisken var", "gör en karatespark", "härma en apa". Claude beskriver då rörelsen med verktyget `skapa_rorelse` som nyckelbilder, alltså vinklar i grader för huvud, överkropp, armar, armbågar, handleder, händer (öppen, knytnäve, peka, tumme upp, fredstecken), ben och knän vid olika tidpunkter, plus höjd (hopp) och snurr. Spelet (`src/motion.js`) räknar fram en mjuk rörelse mellan nyckelbilderna och lägger den ovanpå den vanliga animationen. Rörelser för överkroppen går att göra sittande.
+
+Vinklarna utgår från en neutral stående pose och personens egna riktningar ("lyft armen framåt 90" betyder samma sak för alla modeller), så Claude behöver inte känna till skelettet.
+
+Varje skapad rörelse sparas i webbläsaren. Personerna kan sedan göra den igen, även utan AI: skriv till exempel "gör honnör". Det finns också färdiga rörelser som fungerar utan AI: *peka*, *tumme upp*, *buga*, *nicka*, *skaka på huvudet*, *armarna i kors*, *händerna på höfterna*, *hoppa*, *snurra*, *visa musklerna* och *fredstecken*.
+
 ## Närbildsläge
 
 Välj **Närbild** på startskärmen (eller under ⚙︎ Inställningar → Läge). Då är det bara en eller två personer i rummet åt gången, och de visas i högre detalj:
