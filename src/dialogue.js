@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { ACTION_TOOL, validCommand, commandResultText } from './commands.js';
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -201,7 +202,13 @@ export function saveSettings(s) {
 function systemPrompt(ch, world) {
   const p = ch.persona;
   const others = world.characters.filter((c) => c !== ch).map((c) => `${c.persona.firstName} (${c.persona.job})`);
-  const where = ch.seat ? `sitter i ${ch.seat.label}` : ch.poi ? `står vid ${ch.poi.label}` : 'står i rummet';
+  const where = ch.following
+    ? 'följer efter spelaren'
+    : ch.seated
+      ? `sitter ${ch.seat.label === 'matbordet' ? 'vid' : 'i'} ${ch.seat.label}`
+      : ch.poi
+        ? `står vid ${ch.poi.label}`
+        : 'står i rummet';
   return `Du spelar en rollfigur i ett 3D-spel i förstapersonsperspektiv. Spelaren har gått fram till dig i ett möblerat vardagsrum och pratar med dig.
 
 Din rollfigur:
@@ -221,7 +228,12 @@ Så här svarar du:
 - Prata svenska, som en verklig människa i ett vardagligt samtal. Håll dig i rollen; du vet inte att du är en AI eller en spelfigur.
 - Svara kort, oftast 1–3 meningar, så att det passar en pratbubbla på en mobilskärm. Ingen markdown, inga listor.
 - Visa personligheten i hur du formulerar dig. Hitta gärna på små detaljer om ditt liv som passar rollen.
-- Om spelaren tar farväl, säg hej då och avsluta svaret med taggen [GÅR].`;
+
+Handlingar:
+- Du kan röra dig och göra saker i rummet med verktyget gor_handling: sätta dig, resa dig, gå till en plats, komma fram till spelaren, följa efter spelaren, stanna, lämna rummet, eller gester som att vinka, dansa, klappa händerna, jubla, skratta, rycka på axlarna, sträcka på dig, gäspa, sätta dig på huk, ta ett foto eller fundera.
+- När spelaren ber dig göra något sådant gör du det, gärna med en kommentar i din personlighets stil. Skriv först en kort replik, anropa sedan verktyget.
+- Om spelaren tar farväl eller ber dig gå, säg hej då och använd handlingen lamna_rummet.
+- Säg inte att du gör något du inte kan göra med verktyget.`;
 }
 
 export class ClaudeBrain {
@@ -230,31 +242,60 @@ export class ClaudeBrain {
     this.client = new Anthropic({ apiKey: settings.apiKey, dangerouslyAllowBrowser: true });
   }
 
-  async reply(ch, text, world, onDelta) {
-    ch.history.push({ role: 'user', content: text });
-    const stream = this.client.beta.messages.stream({
-      model: this.settings.model || DEFAULT_MODEL,
-      max_tokens: 2000,
-      output_config: { effort: 'low' },
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      system: systemPrompt(ch, world),
-      messages: ch.history,
-    });
-    let full = '';
-    stream.on('text', (delta) => {
-      full += delta;
-      onDelta(full.replace(/\[GÅR\]/g, ''));
-    });
-    const final = await stream.finalMessage();
-    if (final.stop_reason === 'refusal') {
-      // Ta bort användarens meddelande så att historiken förblir giltig
+  // execute(cmd) utför en handling i spelet och returnerar { ok, reason }.
+  // Resultaten skickas tillbaka till Claude tillsammans med spelarens nästa meddelande.
+  async reply(ch, text, world, onDelta, execute) {
+    const pending = ch.pendingToolResults || [];
+    ch.pendingToolResults = [];
+    ch.history.push({ role: 'user', content: [...pending, { type: 'text', text }] });
+    const restore = () => {
       ch.history.pop();
-      return { text: 'Hmm, det vill jag inte prata om. Kan vi ta något annat?', leave: false };
+      ch.pendingToolResults = pending;
+    };
+    let final;
+    let full = '';
+    try {
+      const stream = this.client.beta.messages.stream({
+        model: this.settings.model || DEFAULT_MODEL,
+        max_tokens: 2000,
+        output_config: { effort: 'low' },
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+        system: systemPrompt(ch, world),
+        tools: [ACTION_TOOL],
+        messages: ch.history,
+      });
+      stream.on('text', (delta) => {
+        full += delta;
+        onDelta(full);
+      });
+      final = await stream.finalMessage();
+    } catch (err) {
+      restore();
+      throw err;
+    }
+    if (final.stop_reason === 'refusal') {
+      // Ta bort spelarens meddelande så att historiken förblir giltig
+      restore();
+      return { text: 'Hmm, det vill jag inte prata om. Kan vi ta något annat?', outcomes: [] };
     }
     // Spara hela svaret (inklusive tänkande-block) så att nästa anrop bygger vidare på samma historik
     ch.history.push({ role: 'assistant', content: final.content });
-    const leave = /\[GÅR\]/.test(full);
-    return { text: full.replace(/\[GÅR\]/g, '').trim(), leave };
+    const outcomes = [];
+    const results = [];
+    for (const block of final.content) {
+      if (block.type !== 'tool_use') continue;
+      // Med strömmade verktygsargument kan indata vara ofullständig; kontrollera den innan något körs
+      const cmd = final.stop_reason === 'max_tokens' ? null : validCommand(block.input);
+      if (!cmd) {
+        results.push({ type: 'tool_result', tool_use_id: block.id, content: 'Ogiltig handling, inget hände.', is_error: true });
+        continue;
+      }
+      const res = execute(cmd);
+      outcomes.push({ cmd, res });
+      results.push({ type: 'tool_result', tool_use_id: block.id, content: commandResultText(cmd, res), ...(res.ok ? {} : { is_error: true }) });
+    }
+    ch.pendingToolResults = results;
+    return { text: full.trim(), outcomes };
   }
 }

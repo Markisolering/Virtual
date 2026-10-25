@@ -56,6 +56,25 @@ Varje person får vid slumpen:
 - **Personlighet:** namn, ålder, yrke, hemstad, hobby, favoritmat, musiksmak, en egenhet, ett skäl att vara där och en av sju personligheter (vänlig, blyg, sarkastisk, entusiastisk, grinig, filosofisk, charmig) som styr hur personen pratar.
 - **Beteende:** personerna hittar vägen runt möblerna med A*, sätter sig på lediga platser, går fram till saker i rummet, tittar på dig när du är nära och lämnar rummet efter en stund. Säger du hej då går de.
 
+## Be personerna göra saker
+
+Skriv vad du vill att personen ska göra, eller använd snabbknapparna i chatten:
+
+| Exempel | Vad som händer |
+|---|---|
+| *Sätt dig i soffan*, *sätt dig vid matbordet* | Går till en ledig plats och sätter sig |
+| *Res dig*, *stanna här*, *kom hit* | Ställer sig upp, stannar kvar eller kommer fram till dig |
+| *Gå till köket / fönstret / bokhyllan / tv:n / dörren* | Går dit och stannar en stund |
+| *Följ mig* | Följer efter dig i rummet tills du säger *stanna* eller *sluta följa* |
+| *Dansa*, *vinka*, *klappa händerna*, *jubla*, *skratta*, *ta ett foto*, *sätt dig på huk*, *gäspa* | Gör gesten |
+| *Gå härifrån*, *hej då* | Lämnar rummet |
+
+Personerna svarar i sin egen stil; en grinig person suckar men gör det ändå. Med AI-samtal påslaget förstår de friare formuleringar ("orkar du inte sätta dig en stund?") eftersom Claude själv väljer handling via verktyget `gor_handling`.
+
+## Vilka som syns
+
+Under ⚙︎ Inställningar → **Personer i rummet** väljer du *Alla*, *Bara kvinnor* eller *Bara män*. Byter du går de som inte passar ut ur rummet, och nya personer som kommer in följer valet.
+
 ## Samtal
 
 Spelet har en inbyggd svensk samtalsmotor som fungerar utan internet. Den känner igen frågor om namn, jobb, ålder, hobbyer, mat, musik, varför personen är där och mycket mer, och svarar i personens egen stil.

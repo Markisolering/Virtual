@@ -5,15 +5,18 @@
 // Den nya versionen tar över först när användaren trycker på "Uppdatera" (meddelandet SKIP_WAITING).
 const BUILD = '__BUILD_ID__';
 const SHELL = `shell-${BUILD}`;
-// Modellerna är stora (ca 25 MB) och ändras sällan, så de ligger i en egen cache som överlever
-// uppdateringar. Höj versionen här om filerna i public/avatars eller public/anims byts ut.
-const MODELS = 'models-v1';
+// Personmodellerna är stora (ca 25 MB) och ändras sällan, så de ligger i en egen cache som överlever
+// uppdateringar. Animationerna har en egen cache. Höj respektive version om filerna i
+// public/avatars eller public/anims byts ut, så hämtas bara de filerna på nytt.
+const AVATARS = 'models-v1'; // hette så innan animationerna fick en egen cache
+const ANIMS = 'anims-v2';
+const KEEP = [SHELL, AVATARS, ANIMS];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     Promise.all([
       caches.open(SHELL).then((c) => c.addAll(['./', './manifest.webmanifest'])),
-      caches.open(MODELS).then((c) => c.addAll(['./anims/f.glb', './anims/m.glb'])),
+      caches.open(ANIMS).then((c) => c.addAll(['./anims/f.glb', './anims/m.glb'])),
     ]),
   );
 });
@@ -26,22 +29,24 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== SHELL && k !== MODELS).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => !KEEP.includes(k)).map((k) => caches.delete(k))))
+      // Gamla animationer kan ligga kvar i personcachen från tidigare versioner
+      .then(() => caches.open(AVATARS))
+      .then((c) => c.keys().then((reqs) => Promise.all(reqs.filter((r) => r.url.includes('/anims/')).map((r) => c.delete(r)))))
       .then(() => self.clients.claim()),
   );
 });
 
 function cacheFirst(req, cacheName) {
-  return caches.match(req).then(
-    (hit) =>
-      hit ||
-      fetch(req).then((res) => {
-        if (res.ok) {
-          const copy = res.clone();
-          caches.open(cacheName).then((c) => c.put(req, copy));
-        }
-        return res;
-      }),
+  return caches.open(cacheName).then((cache) =>
+    cache.match(req).then(
+      (hit) =>
+        hit ||
+        fetch(req).then((res) => {
+          if (res.ok) cache.put(req, res.clone());
+          return res;
+        }),
+    ),
   );
 }
 
@@ -64,8 +69,10 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== location.origin) return; // t.ex. anrop till Claude går alltid direkt till nätet
 
   const path = url.pathname;
-  if (/\/(avatars|anims)\//.test(path) && !path.endsWith('.json')) {
-    event.respondWith(cacheFirst(req, MODELS));
+  if (path.includes('/anims/')) {
+    event.respondWith(cacheFirst(req, ANIMS));
+  } else if (path.includes('/avatars/') && !path.endsWith('.json')) {
+    event.respondWith(cacheFirst(req, AVATARS));
   } else if (/\/(assets|icons)\//.test(path)) {
     // Byggda filer har innehållshash i namnet och ändras aldrig
     event.respondWith(cacheFirst(req, SHELL));

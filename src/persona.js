@@ -44,7 +44,9 @@ export const PERSONALITIES = [
 
 export function makePersona(gender) {
   const age = Math.round(chance(0.15) ? rand(56, 70) : rand(20, 55));
-  const [job, jobDetail] = age > 67 ? ['pensionär', pick(['som har varit lärare', 'som har varit sjökapten', 'som har jobbat på posten', 'som har varit ingenjör'])] : pick(JOBS);
+  // Studenter är unga; äldre får ett annat yrke
+  const jobs = age > 32 ? JOBS.filter(([j]) => j !== 'student') : JOBS;
+  const [job, jobDetail] = age > 67 ? ['pensionär', pick(['som har varit lärare', 'som har varit sjökapten', 'som har jobbat på posten', 'som har varit ingenjör'])] : pick(jobs);
   return {
     gender,
     pronoun: gender === 'kvinna' ? 'hon' : gender === 'man' ? 'han' : 'hen',

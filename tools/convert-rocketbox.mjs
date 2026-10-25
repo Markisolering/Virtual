@@ -119,6 +119,18 @@ const CLIPS = {
   listen1: 'static/{g}_gestic_listen_neutral_01',
   listen2: 'static/{g}_gestic_listen_accept_01',
   wave: 'static/{g}_wave_01',
+  // Handlingar man kan be personerna om
+  dance: 'static/{g}_dancing_neutral',
+  clap: 'static/{g}_claphands_01',
+  cheer: 'static/{g}_cheer_01',
+  laugh: 'static/{g}_gestic_laugh_loud',
+  shrug: 'static/{g}_gestic_shrug_01',
+  sitShrug: 'static/{g}_sit_chair_gestic_shrug_01',
+  stretch: 'static/{g}_idle_stretch_arms_01',
+  yawn: 'static/{g}_idle_yawn_01',
+  crouch: 'static/{g}_crouch_idle',
+  photo: 'static/{g}_take_picture',
+  think: 'static/{g}_gestic_thoughtful_01',
 };
 
 async function convertAnims(g) {

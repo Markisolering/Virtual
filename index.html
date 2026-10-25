@@ -36,7 +36,7 @@
       <div id="chat-log"></div>
       <div id="chat-quick"></div>
       <form id="chat-form" autocomplete="off">
-        <input id="chat-input" type="text" placeholder="Säg något…" enterkeyhint="send" maxlength="400" />
+        <input id="chat-input" type="text" placeholder="Säg något eller be om något…" enterkeyhint="send" maxlength="400" />
         <button type="submit" aria-label="Skicka">➤</button>
       </form>
     </div>
@@ -66,6 +66,13 @@
             <option value="low">Låg (snabbast)</option>
             <option value="medium">Mellan</option>
             <option value="high">Hög (skuggor, AO och glöd)</option>
+          </select>
+        </label>
+        <label>Personer i rummet
+          <select id="set-show">
+            <option value="all">Alla</option>
+            <option value="f">Bara kvinnor</option>
+            <option value="m">Bara män</option>
           </select>
         </label>
         <label>Anthropic API-nyckel (valfri)

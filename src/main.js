@@ -9,12 +9,14 @@ import { buildRoom, SPAWN, DOOR, ROOM } from './room.js';
 import { Nav } from './nav.js';
 import { Character, angleDiff, library } from './characters.js';
 import { OfflineBrain, ClaudeBrain, loadSettings, saveSettings, DEFAULT_MODEL } from './dialogue.js';
+import { parseCommand, commandReply } from './commands.js';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
 
 // ---------------- Inställningar och kvalitet ----------------
-let settings = { quality: 'auto', ...loadSettings() };
+let settings = { quality: 'auto', show: 'all', ...loadSettings() };
+library.filter = settings.show;
 const resolveQuality = (q) => (q === 'auto' ? (isTouch ? 'medium' : 'high') : q);
 let quality = resolveQuality(settings.quality);
 
@@ -368,7 +370,7 @@ let leaveAfterChat = false;
 const offline = new OfflineBrain();
 const chatEl = $('chat');
 const log = $('chat-log');
-const QUICK = ['Hej!', 'Vad heter du?', 'Hur mår du?', 'Vad jobbar du med?', 'Varför är du här?', 'Berätta något om dig', 'Vad gillar du att göra?', 'Hej då!'];
+const QUICK = ['Hej!', 'Vad heter du?', 'Sätt dig i soffan', 'Följ mig', 'Dansa!', 'Kom hit', 'Gå till köket', 'Vinka', 'Hur mår du?', 'Vad jobbar du med?', 'Berätta något om dig', 'Hej då!'];
 
 function addMsg(text, who) {
   const m = document.createElement('div');
@@ -435,11 +437,7 @@ function closeChat() {
   if (!c) return;
   c.talking = false;
   c.speaking = 0;
-  if (leaveAfterChat && characters.includes(c)) {
-    c.stay = 0;
-    if (c.state === 'sitting' || c.state === 'sittingDown') c.state = 'standingUp';
-    else if (c.state !== 'leaving') c.chooseNext(simWorld);
-  }
+  if (leaveAfterChat && characters.includes(c) && c.state !== 'leaving') c.command({ action: 'lamna_rummet' }, simWorld);
 }
 
 async function send(text) {
@@ -451,37 +449,62 @@ async function send(text) {
   c.transcript.push([text, 'me']);
   $('chat-input').value = '';
   const bubble = addMsg('', 'them typing');
-  let result;
+  const execute = (cmd) => c.command(cmd, simWorld);
+  let result = null;
   if (settings.apiKey) {
     try {
       const brain = new ClaudeBrain(settings);
-      result = await brain.reply(c, text, simWorld, (partial) => {
-        bubble.classList.remove('typing');
-        bubble.textContent = partial;
-        c.speaking = 1.2;
-        log.scrollTop = log.scrollHeight;
-      });
+      result = await brain.reply(
+        c,
+        text,
+        simWorld,
+        (partial) => {
+          bubble.classList.remove('typing');
+          bubble.textContent = partial;
+          c.speaking = 1.2;
+          log.scrollTop = log.scrollHeight;
+        },
+        execute,
+      );
     } catch (err) {
-      // Ta bort det obesvarade meddelandet så att historiken inte får två användarturer i rad
-      if (c.history.at(-1)?.role === 'user') c.history.pop();
       console.error(err);
       const status = err?.status ? ` (${err.status})` : '';
       addMsg(`Kunde inte nå Claude${status}. Den inbyggda samtalsmotorn svarar i stället.`, 'sys');
-      result = null;
     }
   }
   if (!result) {
     await new Promise((r) => setTimeout(r, 450 + Math.random() * 600));
-    result = offline.reply(c, text, simWorld);
+    // Ber spelaren personen göra något? Annars ett vanligt samtalssvar.
+    const cmd = parseCommand(text);
+    if (cmd) {
+      const res = execute(cmd);
+      result = { text: commandReply(c.persona, cmd, res), outcomes: [{ cmd, res }] };
+    } else {
+      result = { ...offline.reply(c, text, simWorld), outcomes: [] };
+    }
   }
   bubble.classList.remove('typing');
+  const outcomes = result.outcomes || [];
   if (chatWith === c) {
-    say(c, result.text || '…', bubble);
+    // Claude kan anropa verktyget utan att säga något; då svarar personen med en standardreplik
+    say(c, result.text || (outcomes[0] ? commandReply(c.persona, outcomes[0].cmd, outcomes[0].res) : '…'), bubble);
+    // Om Claude lovade något som inte gick att göra, säger personen det
+    if (settings.apiKey && result.text) for (const o of outcomes) if (!o.res.ok) say(c, commandReply(c.persona, o.cmd, o.res));
   }
   busy = false;
+  const did = (action) => outcomes.some((o) => o.cmd.action === action && o.res.ok);
   if (result.leave) {
     leaveAfterChat = true;
     setTimeout(() => chatWith === c && closeChat(), 1600);
+  } else if (did('lamna_rummet')) {
+    setTimeout(() => chatWith === c && closeChat(), 1600);
+  } else if (did('folj_mig')) {
+    // Stäng samtalet så att spelaren kan gå iväg
+    setTimeout(() => {
+      if (chatWith !== c) return;
+      closeChat();
+      toast(`${c.name} följer efter dig. Säg "stanna" för att få ${c.persona.pronoun === 'hon' ? 'henne' : c.persona.pronoun === 'han' ? 'honom' : 'hen'} att sluta.`);
+    }, 1500);
   }
 }
 
@@ -490,6 +513,27 @@ $('chat-form').addEventListener('submit', (e) => {
   send($('chat-input').value);
 });
 $('chat-close').addEventListener('click', closeChat);
+
+// ---------------- Vilka som syns ----------------
+const SHOW_TEXT = { all: 'Alla får komma in.', f: 'Nu kommer bara kvinnor in.', m: 'Nu kommer bara män in.' };
+
+// Personer som inte passar det nya valet går ut, och nya personer väljs enligt valet
+function applyShowFilter() {
+  library.filter = settings.show;
+  let leaving = 0;
+  for (const c of characters) {
+    if (library.allowed({ gender: c.gender }) || c.state === 'leaving') continue;
+    if (c === chatWith) closeChat();
+    c.command({ action: 'lamna_rummet' }, simWorld);
+    leaving++;
+  }
+  if (library.list) {
+    nextEntry = library.pickEntry();
+    library.model(nextEntry.id).catch(() => {});
+  }
+  spawnTimer = Math.min(spawnTimer, 4);
+  toast(`${SHOW_TEXT[settings.show]}${leaving ? ' De andra går nu.' : ''}`);
+}
 
 // ---------------- Toast ----------------
 let toastTimer = 0;
@@ -538,6 +582,7 @@ startBtn.addEventListener('click', async () => {
 
 function openSettings() {
   $('set-quality').value = settings.quality || 'auto';
+  $('set-show').value = settings.show || 'all';
   $('set-key').value = settings.apiKey || '';
   $('set-model').value = settings.model || DEFAULT_MODEL;
   $('settings').hidden = false;
@@ -549,8 +594,10 @@ $('settings-btn').addEventListener('click', () => {
 });
 $('set-cancel').addEventListener('click', () => ($('settings').hidden = true));
 $('set-save').addEventListener('click', () => {
+  const prevShow = settings.show;
   settings = {
     quality: $('set-quality').value,
+    show: $('set-show').value,
     apiKey: $('set-key').value.trim(),
     model: $('set-model').value,
   };
@@ -561,7 +608,8 @@ $('set-save').addEventListener('click', () => {
     setupPipeline();
   }
   $('settings').hidden = true;
-  toast(settings.apiKey ? 'AI-samtal är på.' : 'Inbyggd samtalsmotor används.');
+  if (settings.show !== prevShow) applyShowFilter();
+  else toast(settings.apiKey ? 'AI-samtal är på.' : 'Inbyggd samtalsmotor används.');
 });
 
 // ---------------- App-installation ----------------
@@ -759,4 +807,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Exponera för felsökning i konsolen
-window.__game = { scene, characters, player, camera, sim: simWorld, spawnAtDoor };
+window.__game = { scene, characters, player, camera, sim: simWorld, spawnAtDoor, openChat, send, library };
