@@ -79,6 +79,16 @@ Vinklarna utgår från en neutral stående pose och personens egna riktningar ("
 
 Varje skapad rörelse sparas i webbläsaren. Personerna kan sedan göra den igen, även utan AI: skriv till exempel "gör honnör". Det finns också färdiga rörelser som fungerar utan AI: *peka*, *tumme upp*, *buga*, *nicka*, *skaka på huvudet*, *armarna i kors*, *händerna på höfterna*, *hoppa*, *snurra*, *visa musklerna* och *fredstecken*.
 
+### Betyg och inlärning
+
+Efter varje rörelse visas ett betygskort i chatten: 👍 eller 👎. Vid 👎 väljer du vad som var fel (fel position, för snabb, för långsam, för stel, helt fel rörelse, eller skriv själv), och med AI-samtal gör personen genast om rörelsen med din kommentar i åtanke.
+
+Betygen lär spelet att göra bättre rörelser (`src/learning.js`):
+
+- **Förebilder:** rörelser med tummen upp skickas med som exempel när Claude skapar nya rörelser.
+- **Lärdomar:** efter varje betyg sammanfattar en "rörelsecoach" (ett separat Claude-anrop) alla betyg till en kort lista med konkreta lärdomar, t.ex. "Honnör: armbåge ca 135°". Listan följer med till alla personer och samtal.
+- Under ⚙︎ Inställningar ser du hur många rörelser som är inlärda, kan läsa lärdomarna och kan nollställa allt.
+
 ## Närbildsläge
 
 Välj **Närbild** på startskärmen (eller under ⚙︎ Inställningar → Läge). Då är det bara en eller två personer i rummet åt gången, och de visas i högre detalj:
@@ -98,6 +108,8 @@ Under ⚙︎ Inställningar → **Personer i rummet** väljer du *Alla*, *Bara k
 Spelet har en inbyggd svensk samtalsmotor som fungerar utan internet. Den känner igen frågor om namn, jobb, ålder, hobbyer, mat, musik, varför personen är där och mycket mer, och svarar i personens egen stil.
 
 För fria samtal kan du ange en egen Anthropic API-nyckel under **Inställningar**. Då spelas varje person av Claude (förvalt `claude-opus-5-5`, Sonnet 5.5 och Haiku 5.5 går också att välja) med en rollbeskrivning byggd från personens slumpade egenskaper. Svaren strömmas in i pratbubblan och varje person minns sitt samtal med dig. Anropen använder `fallbacks: "default"`, så att en förfrågan som säkerhetsfiltret nekar automatiskt provas på en annan modell. Om API:t inte går att nå tar den inbyggda motorn över.
+
+Instruktionerna till varje rollfigur låses när samtalet börjar, och det som ändras under samtalet (var personen är, humör, vilka som finns i rummet, nya lärdomar) skickas som systemmeddelanden efter spelarens repliker. Historiken byggs alltså bara på, vilket Claude Opus 5.5 kräver för att tidigare tankeblock ska gälla. Skulle API:t ändå svara 400 försöker appen automatiskt igen, först utan tankeblock och sedan med en sammanfattning av samtalet.
 
 Nyckeln sparas bara i webbläsarens `localStorage` och skickas direkt från webbläsaren till Anthropic. Det passar för eget bruk. Om spelet ska publiceras för andra bör anropen gå via en egen server så att ingen nyckel ligger i klienten.
 

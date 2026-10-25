@@ -1,0 +1,155 @@
+import Anthropic from '@anthropic-ai/sdk';
+import { findMotion, savedMotions, JOINT_HELP } from './motion.js';
+
+// Inlärning av rörelser utifrån spelarens betyg.
+//
+// - Varje rörelse får tummen upp/ner och korta kommentarer om vad som var fel.
+// - Rörelser med bäst betyg skickas med som exempel när Claude skapar nya rörelser.
+// - Efter varje betyg uppdaterar en "rörelsecoach" (ett separat Claude-anrop) en kort lista med
+//   lärdomar, t.ex. "för honnör behöver armbågen vara böjd ca 135°". Lärdomarna följer med till
+//   alla personer och samtal, så rörelserna blir bättre med tiden.
+// Allt sparas i webbläsaren.
+
+const RATINGS = 'virtual-room-motion-ratings';
+const LESSONS = 'virtual-room-motion-lessons';
+const MAX_LESSONS = 14;
+
+const read = (key, fallback) => {
+  try {
+    return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+const write = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Lagringen är full eller blockerad
+  }
+};
+
+export function ratings() {
+  return read(RATINGS, {});
+}
+
+export function motionLessons() {
+  return read(LESSONS, []);
+}
+
+export function resetLearning() {
+  for (const key of [RATINGS, LESSONS, 'virtual-room-motions']) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Ignorera
+    }
+  }
+}
+
+// Spara ett betyg. good = true/false, note = valfri kommentar om vad som var fel.
+export function rateMotion(name, good, note) {
+  const all = ratings();
+  const r = all[name] || { up: 0, down: 0, notes: [] };
+  if (good) r.up++;
+  else r.down++;
+  if (note) r.notes = [...r.notes, note].slice(-6);
+  r.last = Date.now();
+  all[name] = r;
+  write(RATINGS, all);
+  return r;
+}
+
+// Rörelser med bäst betyg, som exempel för Claude
+export function bestExamples(n = 3) {
+  const all = ratings();
+  return Object.entries(all)
+    .filter(([, r]) => r.up > 0 && r.up >= r.down)
+    .sort((a, b) => b[1].up - b[1].down - (a[1].up - a[1].down) || b[1].last - a[1].last)
+    .map(([name]) => [name, findMotion(name)])
+    .filter(([, def]) => def)
+    .slice(0, n);
+}
+
+const compact = (def) =>
+  JSON.stringify({
+    hela_kroppen: def.hela_kroppen || undefined,
+    loop: def.loop || undefined,
+    nyckelbilder: def.nyckelbilder.map((k) => Object.fromEntries(Object.entries(k).map(([j, v]) => [j, typeof v === 'number' ? Math.round(v * 10) / 10 : v]))),
+  });
+
+// Del av systemprompten: lärdomar och väl betygsatta exempel (läses när ett samtal börjar)
+export function motionGuide() {
+  const lessons = motionLessons();
+  const examples = bestExamples();
+  const parts = [];
+  if (lessons.length) parts.push(`Lärdomar om rörelser (från spelarens betyg – följ dem när du skapar rörelser):\n${lessons.map((l) => `- ${l}`).join('\n')}`);
+  if (examples.length) {
+    parts.push(
+      `Rörelser som spelaren har gett tummen upp (använd som förebild för vinklar och tempo):\n${examples
+        .map(([name, def]) => `- ${name} (${def.beskrivning || name}): ${compact(def)}`)
+        .join('\n')}`,
+    );
+  }
+  return parts.join('\n\n');
+}
+
+// ---------------- Rörelsecoach ----------------
+// Låter Claude sammanfatta betygen till konkreta, generella lärdomar om hur vinklarna ska sättas.
+let coachBusy = false;
+
+export async function updateLessons(settings, name, good, note) {
+  if (!settings.apiKey || coachBusy) return null;
+  const def = findMotion(name);
+  if (!def) return null;
+  coachBusy = true;
+  try {
+    const client = new Anthropic({ apiKey: settings.apiKey, dangerouslyAllowBrowser: true });
+    const r = ratings()[name] || {};
+    const res = await client.messages.create({
+      model: settings.model || 'claude-opus-5-5',
+      max_tokens: 4000,
+      output_config: { effort: 'low' },
+      system: `Du är rörelsecoach i ett 3D-spel. Personerna i spelet gör rörelser som beskrivs med nyckelbilder: vinklar i grader för leder, räknade från en neutral stående pose med armarna hängande. Ledernas betydelse:
+${Object.entries(JOINT_HELP)
+  .map(([k, v]) => `${k}: ${v}`)
+  .join('\n')}
+
+Din uppgift: uppdatera listan med lärdomar utifrån spelarens senaste betyg, så att framtida rörelser blir bättre. Lärdomarna ska vara korta, konkreta och användbara (helst med vinklar och tempo), till exempel "Honnör: höger arm utåt ca 80, armbåge ca 135, handen vid pannan" eller "Gester blir naturligare med 0,3–0,5 s mellan nyckelbilder". Behåll bra gamla lärdomar, slå ihop dubletter, ta bort sådant som visat sig fel. Högst ${MAX_LESSONS} punkter.
+Svara bara med punktlistan, en lärdom per rad som börjar med "- ".`,
+      messages: [
+        {
+          role: 'user',
+          content: `Nuvarande lärdomar:
+${motionLessons().map((l) => `- ${l}`).join('\n') || '(inga ännu)'}
+
+Rörelse: ${name} (${def.beskrivning || ''})
+${compact(def)}
+
+Spelarens betyg nu: ${good ? 'tummen upp (bra)' : 'tummen ner (dålig)'}${note ? `. Kommentar: ${note}` : ''}
+Tidigare betyg för rörelsen: ${r.up || 0} upp, ${r.down || 0} ner${r.notes?.length ? `, kommentarer: ${r.notes.join('; ')}` : ''}`,
+        },
+      ],
+    });
+    const text = res.content
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n');
+    const lessons = text
+      .split('\n')
+      .map((l) => l.replace(/^\s*[-*•]\s*/, '').trim())
+      .filter((l) => l.length > 3)
+      .slice(0, MAX_LESSONS);
+    if (lessons.length) write(LESSONS, lessons);
+    return lessons;
+  } catch (err) {
+    console.warn('Rörelsecoachen kunde inte uppdatera lärdomarna', err);
+    return null;
+  } finally {
+    coachBusy = false;
+  }
+}
+
+export function learnedCount() {
+  return { motions: Object.keys(savedMotions()).length, rated: Object.keys(ratings()).length, lessons: motionLessons().length };
+}

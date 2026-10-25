@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ACTION_TOOL, EMOTION_TOOL, EMOTIONS, validCommand, commandResultText } from './commands.js';
 import { MOTION_TOOL, PLAY_MOTION_TOOL, cleanMotion, findMotion, saveMotion, motionNames } from './motion.js';
+import { motionGuide, motionLessons } from './learning.js';
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -213,16 +214,12 @@ export function saveSettings(s) {
   }
 }
 
-function systemPrompt(ch, world) {
+// Instruktionerna till rollfiguren låses när samtalet börjar. Claude Opus 5.5 och senare kräver att
+// historiken bara byggs på (annars blir tidigare tankeblock ogiltiga och API:t svarar 400), så det som
+// ändras under samtalet – var personen är, vilka som finns i rummet, nya lärdomar – skickas i stället
+// som korta systemmeddelanden efter spelarens repliker (se situation()).
+function systemPrompt(ch) {
   const p = ch.persona;
-  const others = world.characters.filter((c) => c !== ch).map((c) => `${c.persona.firstName} (${c.persona.job})`);
-  const where = ch.following
-    ? 'följer efter spelaren'
-    : ch.seated
-      ? `sitter ${ch.seat.label === 'matbordet' ? 'vid' : 'i'} ${ch.seat.label}`
-      : ch.poi
-        ? `står vid ${ch.poi.label}`
-        : 'står i rummet';
   return `Du spelar en rollfigur i ett 3D-spel i förstapersonsperspektiv. Spelaren har gått fram till dig i ett möblerat vardagsrum och pratar med dig.
 
 Din rollfigur:
@@ -233,10 +230,8 @@ Din rollfigur:
 - Personlighet: ${p.personality.desc}. ${cap(p.personality.style)}.
 - Ett kännetecken: ${p.quirk}
 - Varför du är här: du ${p.visit}
-- Humör just nu: ${p.mood > 0.7 ? 'på strålande humör' : p.mood > 0.4 ? 'helt okej' : 'lite nere'}
-- Du ${where}. Rummet har soffa, fåtöljer, matbord, kök, bokhylla, skivspelare, tavlor och två fönster mot stan.
-- Andra i rummet: ${others.length ? others.join(', ') : 'ingen annan just nu'}
-- När spelaren kom fram hälsade du: "${ch.greeting || 'Hej!'}"
+- Rummet har soffa, fåtöljer, matbord, kök, bokhylla, skivspelare, tavlor och två fönster mot stan.
+- Var du är, ditt humör och vilka andra som är i rummet får du veta i systemmeddelanden under samtalet.
 
 Så här svarar du:
 - Prata svenska, som en verklig människa i ett vardagligt samtal. Håll dig i rollen; du vet inte att du är en AI eller en spelfigur.
@@ -248,13 +243,40 @@ Handlingar:
 - När spelaren ber dig göra något sådant gör du det, gärna med en kommentar i din personlighets stil. Skriv först en kort replik, anropa sedan verktyget.
 - Om spelaren tar farväl eller ber dig gå, säg hej då och använd handlingen lamna_rummet.
 - Ber spelaren om en rörelse som inte finns i gor_handling (peka, göra honnör, visa en karatespark, härma ett djur, visa hur stor fisken var …) skapar du den själv med skapa_rorelse. Var kreativ men realistisk; rörelser som redan finns gör du med spela_rorelse.
-- Rörelser som redan finns: ${motionNames().join(', ')}.
+- Säger spelaren att en rörelse blev dålig, eller ber dig göra om den, skapar du en förbättrad version med skapa_rorelse och samma namn. Ta hänsyn till spelarens kommentar.
 - Säg inte att du gör något du inte kan göra med verktygen.${
     ch.hasFace
       ? '\n- Spelaren ser ditt ansikte i närbild. Visa känslor med verktyget visa_kansla när de tydligt ändras, t.ex. när du blir glad, skrattar, blir ledsen, arg eller förvånad.'
       : ''
-  }`;
+  }
+
+${motionGuide()}`;
 }
+
+// Det som kan ändras under samtalet. Skickas bara när något har ändrats sedan förra gången.
+function situation(ch, world, first) {
+  const p = ch.persona;
+  const others = world.characters.filter((c) => c !== ch).map((c) => `${c.persona.firstName} (${c.persona.job})`);
+  const where = ch.following
+    ? 'följer efter spelaren'
+    : ch.seated
+      ? `sitter ${ch.seat.label === 'matbordet' ? 'vid' : 'i'} ${ch.seat.label}`
+      : ch.poi
+        ? `står vid ${ch.poi.label}`
+        : 'står i rummet';
+  const lines = [
+    `Du ${where}.`,
+    `Humör: ${p.mood > 0.7 ? 'på strålande humör' : p.mood > 0.4 ? 'helt okej' : 'lite nere'}.`,
+    `Andra i rummet: ${others.length ? others.join(', ') : 'ingen annan just nu'}.`,
+    `Rörelser som finns att göra med spela_rorelse: ${motionNames().join(', ')}.`,
+  ];
+  if (first) lines.push(`När spelaren kom fram hälsade du: "${ch.greeting || 'Hej!'}"`);
+  const lessons = motionLessons();
+  if (lessons.length && JSON.stringify(lessons) !== ch.lessonsSent) lines.push(`Nya lärdomar om rörelser från spelarens betyg:\n${lessons.map((l) => `- ${l}`).join('\n')}`);
+  return lines.join('\n');
+}
+
+const isThinking = (b) => b.type === 'thinking' || b.type === 'redacted_thinking';
 
 export class ClaudeBrain {
   constructor(settings) {
@@ -267,33 +289,72 @@ export class ClaudeBrain {
   async reply(ch, text, world, onDelta, execute, feel) {
     const pending = ch.pendingToolResults || [];
     ch.pendingToolResults = [];
+    if (!ch.systemPrompt || !ch.history.length) {
+      ch.systemPrompt = systemPrompt(ch);
+      ch.lessonsSent = JSON.stringify(motionLessons());
+      ch.lastSituation = null;
+    }
     ch.history.push({ role: 'user', content: [...pending, { type: 'text', text }] });
+    let pushed = 1;
+    // Läget i rummet skickas som ett systemmeddelande efter spelarens replik, bara när det har ändrats
+    const sit = situation(ch, world, ch.history.length === 1);
+    if (sit !== ch.lastSituation) {
+      ch.history.push({ role: 'system', content: sit });
+      pushed++;
+    }
     const restore = () => {
-      ch.history.pop();
+      for (let i = 0; i < pushed; i++) ch.history.pop();
       ch.pendingToolResults = pending;
     };
-    let final;
-    let full = '';
-    try {
+    const request = () => {
       const stream = this.client.beta.messages.stream({
         model: this.settings.model || DEFAULT_MODEL,
-        max_tokens: 2000,
+        max_tokens: 4000,
         output_config: { effort: 'low' },
         betas: ['server-side-fallback-2026-07-01'],
         fallbacks: 'default',
-        system: systemPrompt(ch, world),
+        system: ch.systemPrompt,
         tools: [ACTION_TOOL, MOTION_TOOL, PLAY_MOTION_TOOL, ...(ch.hasFace ? [EMOTION_TOOL] : [])],
         messages: ch.history,
       });
+      full = '';
       stream.on('text', (delta) => {
         full += delta;
         onDelta(full);
       });
-      final = await stream.finalMessage();
+      return stream.finalMessage();
+    };
+    let final;
+    let full = '';
+    try {
+      try {
+        final = await request();
+      } catch (err) {
+        if (err?.status !== 400) throw err;
+        console.warn('Claude svarade 400, försöker igen med rensad historik:', apiMessage(err));
+        // 1. Ta bort tankeblock ur historiken (de kan ha blivit ogiltiga) och försök en gång till
+        if (ch.history.some((m) => Array.isArray(m.content) && m.content.some(isThinking))) {
+          stripThinking(ch.history);
+          try {
+            final = await request();
+          } catch (err2) {
+            if (err2?.status !== 400) throw err2;
+            console.warn('Fortfarande 400:', apiMessage(err2));
+          }
+        }
+        // 2. Börja om samtalet med en sammanfattning av vad som har sagts
+        if (!final) {
+          restartWithSummary(ch, text, world);
+          pushed = ch.history.length;
+          final = await request();
+        }
+      }
     } catch (err) {
       restore();
       throw err;
     }
+    ch.lastSituation = sit;
+    ch.lessonsSent = JSON.stringify(motionLessons());
     if (final.stop_reason === 'refusal') {
       // Ta bort spelarens meddelande så att historiken förblir giltig
       restore();
@@ -340,4 +401,28 @@ export class ClaudeBrain {
     ch.pendingToolResults = results;
     return { text: full.trim(), outcomes };
   }
+}
+
+// API:ts eget felmeddelande, för att kunna visa och felsöka
+export function apiMessage(err) {
+  return err?.error?.error?.message || err?.message || String(err);
+}
+
+function stripThinking(history) {
+  for (const m of history) {
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+    m.content = m.content.filter((b) => !isThinking(b));
+    if (!m.content.length) m.content = [{ type: 'text', text: '…' }];
+  }
+}
+
+// Sista utvägen: ny historik med en kort sammanfattning av samtalet hittills plus spelarens nya replik
+function restartWithSummary(ch, text, world) {
+  const lines = (ch.transcript || []).slice(-14, -1).map(([t, who]) => `${who === 'me' ? 'Spelaren' : 'Du'}: ${t}`);
+  ch.history.length = 0;
+  ch.pendingToolResults = [];
+  ch.systemPrompt = systemPrompt(ch);
+  const intro = lines.length ? `(Samtalet hittills:\n${lines.join('\n')})\n\n` : '';
+  ch.history.push({ role: 'user', content: [{ type: 'text', text: intro + text }] });
+  ch.history.push({ role: 'system', content: situation(ch, world, true) });
 }
