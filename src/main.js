@@ -7,7 +7,7 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { buildRoom, SPAWN, DOOR, ROOM } from './room.js';
 import { Nav } from './nav.js';
-import { Character, angleDiff } from './characters.js';
+import { Character, angleDiff, library } from './characters.js';
 import { OfflineBrain, ClaudeBrain, loadSettings, saveSettings, DEFAULT_MODEL } from './dialogue.js';
 
 const $ = (id) => document.getElementById(id);
@@ -99,15 +99,16 @@ const characters = [];
 let nextId = 1;
 const simWorld = { nav, seats: world.seats, pois: world.pois, player, characters };
 
-function addCharacter() {
-  const c = new Character(nextId++);
+async function addCharacter(entry) {
+  const asset = await library.create(entry);
+  const c = new Character(nextId++, asset);
   characters.push(c);
   scene.add(c.root);
   return c;
 }
 
-function spawnInside() {
-  const c = addCharacter();
+async function spawnInside(entry) {
+  const c = await addCharacter(entry);
   const free = world.seats.filter((s) => !s.occupant);
   if (Math.random() < 0.55 && free.length) {
     const seat = free[Math.floor(Math.random() * free.length)];
@@ -117,6 +118,7 @@ function spawnInside() {
     c.heading = seat.face;
     c.state = 'sitting';
     c.sitAmount = 1;
+    c.play('sit1', 0);
     c.timer = 8 + Math.random() * 30;
   } else {
     const poi = world.pois[Math.floor(Math.random() * world.pois.length)];
@@ -131,16 +133,28 @@ function spawnInside() {
   c.age = Math.random() * 60;
 }
 
-function spawnAtDoor() {
-  const c = addCharacter();
-  c.position.copy(SPAWN);
-  c.heading = Math.PI / 2;
-  c.root.rotation.y = c.heading;
-  c.chooseNext(simWorld);
-  toast(`${c.name} kom in.`);
+// Nästa person laddas i förväg medan den förra är i rummet
+let spawning = false;
+let nextEntry = null;
+async function spawnAtDoor() {
+  if (spawning) return;
+  spawning = true;
+  try {
+    const c = await addCharacter(nextEntry || undefined);
+    c.position.copy(SPAWN);
+    c.heading = Math.PI / 2;
+    c.root.rotation.y = c.heading;
+    c.chooseNext(simWorld);
+    toast(`${c.name} kom in.`);
+  } catch (err) {
+    console.error('Kunde inte ladda en person', err);
+  } finally {
+    nextEntry = library.pickEntry();
+    library.model(nextEntry.id).catch(() => {});
+    spawning = false;
+  }
 }
 
-for (let i = 0; i < 3; i++) spawnInside();
 let spawnTimer = 6;
 let targetCount = 4;
 
@@ -245,7 +259,6 @@ function updatePlayer(dt) {
   if (chatOpen && chatWith) {
     // Vänd blicken mot den man pratar med; lämna plats för chattpanelen
     const h = chatWith.headWorld();
-    h.y -= chatWith.sitAmount * 0.42 * chatWith.scale;
     const dx = h.x - player.position.x;
     const dz = h.z - player.position.z;
     const dy = h.y - EYE;
@@ -317,7 +330,7 @@ function updateFocus() {
     camera.getWorldDirection(fwd);
     for (const c of characters) {
       const h = c.headWorld();
-      h.y -= c.sitAmount * 0.42 * c.scale + 0.25;
+      h.y -= 0.25;
       tmpV.copy(h).sub(camera.position);
       const d = tmpV.length();
       if (d > 3.6) continue;
@@ -333,7 +346,7 @@ function updateFocus() {
   talkBtn.hidden = !best;
   if (best) {
     const h = best.headWorld();
-    h.y += 0.28 - best.sitAmount * 0.42 * best.scale;
+    h.y += 0.3;
     h.project(camera);
     if (h.z < 1) {
       focusLabel.classList.add('show');
@@ -384,6 +397,7 @@ function openChat(c) {
     addMsg('…', 'sys');
   }
   c.transcript ||= [];
+  if (!c.memory.met) c.wave();
   const greet = offline.reply(c, 'hej', simWorld).text;
   c.greeting = greet;
   say(c, greet);
@@ -397,6 +411,7 @@ function openChat(c) {
     quick.appendChild(b);
   }
   chatEl.hidden = false;
+  document.body.classList.add('chatting');
   talkBtn.hidden = true;
   focusLabel.classList.remove('show');
   if (!isTouch) $('chat-input').focus();
@@ -413,6 +428,7 @@ function closeChat() {
   if (!chatOpen) return;
   chatOpen = false;
   chatEl.hidden = true;
+  document.body.classList.remove('chatting');
   $('chat-input').blur();
   const c = chatWith;
   chatWith = null;
@@ -487,7 +503,27 @@ function toast(text) {
 
 // ---------------- Start och inställningar ----------------
 let started = false;
-$('start-btn').addEventListener('click', async () => {
+const startBtn = $('start-btn');
+startBtn.disabled = true;
+startBtn.textContent = 'Laddar personer…';
+library
+  .init((p) => (startBtn.textContent = `Laddar personer… ${Math.round(p * 100)} %`))
+  .then(async () => {
+    await Promise.all(library.initial.map((e) => spawnInside(e)));
+    nextEntry = library.pickEntry();
+    library.model(nextEntry.id).catch(() => {});
+    startBtn.disabled = false;
+    startBtn.textContent = 'Gå in';
+  })
+  .catch((err) => {
+    console.error(err);
+    startBtn.textContent = 'Kunde inte ladda. Försök igen';
+    startBtn.disabled = false;
+    startBtn.onclick = () => location.reload();
+  });
+
+startBtn.addEventListener('click', async () => {
+  if (!library.list || !characters.length) return;
   $('start').hidden = true;
   $('hud').hidden = false;
   started = true;
@@ -528,6 +564,28 @@ $('set-save').addEventListener('click', () => {
   toast(settings.apiKey ? 'AI-samtal är på.' : 'Inbyggd samtalsmotor används.');
 });
 
+// ---------------- App-installation ----------------
+const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone;
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Service worker kunde inte registreras', err));
+}
+let installPrompt = null;
+addEventListener('beforeinstallprompt', (e) => {
+  // Android/Chrome: visa en egen knapp i stället för webbläsarens standardruta
+  e.preventDefault();
+  installPrompt = e;
+  $('install-btn').hidden = false;
+});
+$('install-btn').addEventListener('click', async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+  $('install-btn').hidden = true;
+});
+addEventListener('appinstalled', () => ($('install-btn').hidden = true));
+if (!standalone && /iphone|ipad|ipod/i.test(navigator.userAgent)) $('install-ios').hidden = false;
+
 // ---------------- Huvudloop ----------------
 const timer = new THREE.Timer();
 timer.connect(document);
@@ -545,7 +603,7 @@ function frame(now) {
     spawnTimer = 8 + Math.random() * 14;
     if (Math.random() < 0.3) targetCount = 2 + Math.floor(Math.random() * 4);
     const doorBusy = characters.some((c) => c.position.x < -4 && c.state !== 'leaving');
-    if (characters.length < targetCount && !doorBusy) spawnAtDoor();
+    if (library.list && characters.length < targetCount && !doorBusy) spawnAtDoor();
   }
 
   for (const c of characters) c.update(dt, simWorld);
@@ -594,4 +652,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Exponera för felsökning i konsolen
-window.__game = { scene, characters, player, camera, addCharacter, sim: simWorld };
+window.__game = { scene, characters, player, camera, sim: simWorld, spawnAtDoor };

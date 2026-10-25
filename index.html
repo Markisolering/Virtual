@@ -6,8 +6,13 @@
     <meta name="theme-color" content="#14110f" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Vardagsrummet" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <title>Vardagsrummet</title>
-    <link rel="stylesheet" href="/src/style.css" />
+    <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
     <canvas id="game"></canvas>
@@ -46,7 +51,10 @@
           <li><b>Dator:</b> WASD för att gå, dra med musen för att titta, <kbd>E</kbd> för att prata.</li>
         </ul>
         <button id="start-btn" class="primary">Gå in</button>
+        <button id="install-btn" class="secondary" hidden>Installera som app</button>
+        <p id="install-ios" class="note center" hidden>Installera som app: tryck på <b>Dela</b> <span aria-hidden="true">⎋</span> och välj <b>Lägg till på hemskärmen</b>.</p>
         <button id="start-settings" class="link">Inställningar och AI-samtal</button>
+        <p class="credits">Personerna är Microsoft Rocketbox-avatarer (<a href="https://github.com/microsoft/Microsoft-Rocketbox" target="_blank" rel="noopener">MIT-licens</a>).</p>
       </div>
     </div>
 
@@ -79,6 +87,6 @@
       </div>
     </div>
 
-    <script type="module" src="/src/main.js"></script>
+    <script type="module" src="./src/main.js"></script>
   </body>
 </html>

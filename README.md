@@ -2,15 +2,29 @@
 
 Ett 3D-spel i förstapersonsperspektiv för mobilen (fungerar även på dator). Du rör dig i ett möblerat vardagsrum där slumpmässigt genererade personer kommer in genom dörren, sätter sig i soffan, tittar ut genom fönstret, hänger i köket och så småningom går därifrån. Du kan gå fram till vem som helst och prata med dem.
 
-## Kom igång
+## Spela på mobilen (ingen dator behövs)
+
+Spelet är en installerbar webbapp (PWA). När det är publicerat finns det på:
+
+**https://markisolering.github.io/Virtual/**
+
+- **iPhone (Safari):** öppna adressen, tryck på Dela och välj *Lägg till på hemskärmen*.
+- **Android (Chrome):** öppna adressen och tryck på *Installera som app* på startskärmen (eller i menyn ⋮ → *Installera app*).
+
+Appen öppnas sedan i helskärm från en egen ikon och fungerar även offline efter första starten.
+
+### Publicera (görs en gång, går att göra från mobilen på github.com)
+
+1. **Settings → Pages → Build and deployment → Source:** välj *GitHub Actions*.
+2. Slå ihop koden till grenen `main`. Arbetsflödet `.github/workflows/deploy.yml` bygger och publicerar då spelet automatiskt vid varje ändring.
+
+## Utveckla på dator
 
 ```bash
 npm install
-npm run dev      # startar på http://localhost:5173 och visar en nätverksadress för mobilen
+npm run dev      # startar en utvecklingsserver och visar en nätverksadress för mobilen
 npm run build    # bygger en statisk version till dist/
 ```
-
-Öppna nätverksadressen som `npm run dev` skriver ut i mobilens webbläsare (mobilen och datorn måste vara på samma nätverk). Mappen `dist/` kan läggas på vilken statisk webbhost som helst, till exempel GitHub Pages.
 
 ## Styrning
 
@@ -23,9 +37,11 @@ npm run build    # bygger en statisk version till dist/
 
 ## Karaktärerna
 
+Personerna är fotorealistiska 3D-modeller från [Microsoft Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox) (MIT-licens): 40 olika vuxna med egna ansikten, frisyrer och kläder, riggade med ansiktsben. Animationerna (gå, stå, sitta, prata, lyssna, vinka) kommer från samma bibliotek. Huvud, käke och ögonlock styrs dessutom av koden, så att personerna tittar på dig, rör munnen när de pratar och blinkar.
+
 Varje person får vid slumpen:
 
-- **Utseende:** längd, kroppsbyggnad, hudton, ögonfärg, frisyr (kort, lång, page, knut, hästsvans, lockigt, afro, rakat, flint), skägg, glasögon, mössa eller keps, och kläder (t-shirt, tröja, skjorta, huvtröja, klänning, byxor, shorts, kjol) i olika färger.
+- **Utseende:** en av de 40 modellerna (samma person syns inte två gånger samtidigt) och en liten variation i längd.
 - **Personlighet:** namn, ålder, yrke, hemstad, hobby, favoritmat, musiksmak, en egenhet, ett skäl att vara där och en av sju personligheter (vänlig, blyg, sarkastisk, entusiastisk, grinig, filosofisk, charmig) som styr hur personen pratar.
 - **Beteende:** personerna hittar vägen runt möblerna med A*, sätter sig på lediga platser, går fram till saker i rummet, tittar på dig när du är nära och lämnar rummet efter en stund. Säger du hej då går de.
 
@@ -48,7 +64,12 @@ index.html          Gränssnitt: startskärm, HUD, chatt, inställningar
 src/main.js         Rendering, efterbehandling, styrning, spawn av personer, chatt
 src/room.js         Rummet, möblerna, ljussättningen, sittplatser och intressanta platser
 src/textures.js     Procedurella canvas-texturer
-src/characters.js   Generering av personer, kroppsmodell, animationer och beteende
+src/characters.js   Laddning av modeller, animationer, blick, käke och beteende
+src/persona.js      Slumpad personlighet och bakgrund
+public/avatars/     Konverterade Rocketbox-modeller (GLB med WebP-texturer och meshopt-komprimering)
+public/anims/       Animationer för kvinnor (f.glb) och män (m.glb)
+public/sw.js        Service worker för offline och snabb start
+tools/              Skript som konverterar Rocketbox (FBX + TGA) till GLB
 src/nav.js          Rutnät, A*-vägplanering och kollision
 src/dialogue.js     Inbyggd dialogmotor och Claude-integration
 ```
