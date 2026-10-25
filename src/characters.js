@@ -4,6 +4,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { SPAWN } from './room.js';
 import { makePersona } from './persona.js';
+import { GESTURES, PLACES } from './commands.js';
 
 export { PERSONALITIES } from './persona.js';
 
@@ -12,6 +13,10 @@ const rand = (a, b) => a + Math.random() * (b - a);
 
 // Gånganimationen förflyttar sig 1,21 m/s i originalet
 const WALK_CLIP_SPEED = 1.21;
+// Hur länge en person stannar kvar där man bett den vara innan den gör något eget (sekunder)
+const HOLD_TIME = 90;
+// Klipp som spelas en gång (gester); övriga loopar
+const ONCE_CLIPS = new Set(['wave', 'clap', 'cheer', 'laugh', 'shrug', 'sitShrug', 'stretch', 'yawn', 'photo', 'think']);
 const BASE = import.meta.env.BASE_URL;
 
 // ---------------- Modellbibliotek ----------------
@@ -23,6 +28,11 @@ class AvatarLibrary {
     this.anims = new Map(); // 'f' | 'm' -> Promise<{clips, refHip}>
     this.list = null;
     this.inUse = new Map();
+    this.filter = 'all'; // 'all' | 'f' | 'm': vilka som får komma in i rummet
+  }
+
+  allowed(entry) {
+    return this.filter === 'all' || entry.gender === this.filter;
   }
 
   async init(onProgress) {
@@ -32,9 +42,12 @@ class AvatarLibrary {
     const tick = () => onProgress?.(++done / 5);
     await Promise.all(['f', 'm'].map((g) => this.animations(g).then(tick)));
     // Förladda några personer så att rummet inte är tomt när spelet startar
-    const f = this.list.filter((a) => a.gender === 'f');
-    const m = this.list.filter((a) => a.gender === 'm');
-    this.initial = [pick(f), pick(m), pick(Math.random() < 0.5 ? f : m)].filter((v, i, a) => a.indexOf(v) === i);
+    const pool = this.list.filter((a) => this.allowed(a));
+    this.initial = [];
+    while (this.initial.length < 3 && this.initial.length < pool.length) {
+      const e = pick(pool);
+      if (!this.initial.includes(e)) this.initial.push(e);
+    }
     await Promise.all(this.initial.map((a) => this.model(a.id).then(tick)));
     onProgress?.(1);
   }
@@ -85,9 +98,9 @@ class AvatarLibrary {
 
   // Välj en avatar som inte redan finns i rummet om det går
   pickEntry() {
-    const free = this.list.filter((a) => !this.inUse.get(a.id));
-    const pool = free.length ? free : this.list;
-    return pick(pool);
+    const allowed = this.list.filter((a) => this.allowed(a));
+    const free = allowed.filter((a) => !this.inUse.get(a.id));
+    return pick(free.length ? free : allowed);
   }
 
   async create(entry = this.pickEntry()) {
@@ -151,6 +164,7 @@ export class Character {
     this.id = id;
     const { entry, scene, anim } = asset;
     this.avatarId = entry.id;
+    this.gender = entry.gender;
     this.persona = makePersona(entry.gender === 'f' ? 'kvinna' : 'man');
     this.name = this.persona.firstName;
     this.history = []; // konversationshistorik för Claude
@@ -175,6 +189,15 @@ export class Character {
     this.lookTarget = null;
     this.heading = 0;
     this.jaw = 0;
+    // Uppdrag från spelaren
+    this.commandActive = false; // personen är upptagen med något man bett om
+    this.queuedCommand = null; // görs när personen har rest sig
+    this.pendingGesture = null;
+    this.gesture = null;
+    this.holdUntil = 0;
+    this.following = false;
+    this.followUntil = 0;
+    this.faceTarget = null;
     this.setupModel(scene, anim);
   }
 
@@ -211,14 +234,15 @@ export class Character {
         return c;
       });
       const action = this.mixer.clipAction(new THREE.AnimationClip(name, clip.duration, tracks));
-      if (name === 'wave') action.setLoop(THREE.LoopOnce, 1);
+      if (ONCE_CLIPS.has(name)) {
+        action.setLoop(THREE.LoopOnce, 1);
+        // Stanna kvar i slutpositionen tills nästa klipp tonar in, annars syns grundposen en bildruta
+        action.clampWhenFinished = true;
+      }
       this.actions[name] = action;
     }
     this.mixer.addEventListener('finished', (e) => {
-      if (e.action === this.actions.wave) {
-        this.waving = false;
-        this.currentName = null;
-      }
+      if (this.gesture && e.action === this.actions[this.gesture.clip]) this.endGesture();
     });
     this.current = null;
     this.play('idle1', 0);
@@ -269,6 +293,18 @@ export class Character {
 
   chooseNext(world) {
     const { nav, seats, pois } = world;
+    if (this.following) {
+      this.state = 'following';
+      this.path = null;
+      this.timer = 0;
+      return;
+    }
+    if (this.age < this.holdUntil) {
+      // Spelaren bad personen stanna här
+      this.state = 'idle';
+      this.timer = this.holdUntil - this.age;
+      return;
+    }
     if (this.age > this.stay) {
       this.state = 'leaving';
       this.setPath(nav, SPAWN.x, SPAWN.z);
@@ -302,7 +338,7 @@ export class Character {
     const { player } = world;
     let moving = false;
 
-    if (this.talking) {
+    if (this.talking && !this.commandActive && !this.following) {
       this.lookTarget = player.headPos;
       if (this.state !== 'sitting' && this.state !== 'sittingDown') this.faceTowards(player.position.x, player.position.z, dt, 4);
     } else {
@@ -311,6 +347,8 @@ export class Character {
         case 'toPoi':
         case 'leaving': {
           moving = this.followPath(dt, world);
+          // Långt in i hallen räcker; flera som går samtidigt kan annars knuffa varandra ifrån slutpunkten
+          if (this.state === 'leaving' && this.position.x < SPAWN.x + 0.7) this.path = null;
           if (!this.path || !this.path.length) {
             if (this.state === 'leaving') {
               this.done = true;
@@ -318,8 +356,13 @@ export class Character {
               this.state = 'sittingDown';
             } else {
               this.state = 'idle';
-              this.timer = rand(5, 14);
-              if (this.poi) this.desiredHeading = this.poi.face;
+              this.timer = Math.max(rand(5, 14), this.holdUntil - this.age);
+              if (this.faceTarget === 'player') {
+                const p = world.player.position;
+                this.desiredHeading = Math.atan2(p.x - this.position.x, p.z - this.position.z);
+              } else if (this.poi) this.desiredHeading = this.poi.face;
+              this.faceTarget = null;
+              if (!this.pendingGesture) this.commandActive = false;
             }
           }
           break;
@@ -339,14 +382,15 @@ export class Character {
             }
             if (d < 0.03) {
               this.state = 'sitting';
-              this.timer = rand(16, 45);
+              this.timer = Math.max(rand(16, 45), this.holdUntil - this.age);
+              this.commandActive = false;
             }
           }
           break;
         }
         case 'sitting': {
           this.faceAngle(this.seat.face, dt, 4);
-          if (this.timer <= 0) this.state = 'standingUp';
+          if (this.timer <= 0 && this.age >= this.holdUntil && !this.following) this.state = 'standingUp';
           this.idleLook(dt, world);
           break;
         }
@@ -361,10 +405,40 @@ export class Character {
               this.position.x += (dx / d) * step;
               this.position.z += (dz / d) * step;
             } else {
-              s.occupant = null;
+              if (s.occupant === this) s.occupant = null;
               this.seat = null;
-              this.chooseNext(world);
+              if (this.queuedCommand) {
+                const q = this.queuedCommand;
+                this.queuedCommand = null;
+                this.command(q, world);
+              } else {
+                if (!this.pendingGesture) this.commandActive = false;
+                this.chooseNext(world);
+              }
             }
+          }
+          break;
+        }
+        case 'following': {
+          const p = player.position;
+          const d = Math.hypot(p.x - this.position.x, p.z - this.position.z);
+          if (this.age > this.followUntil) {
+            this.following = false;
+            this.chooseNext(world);
+            break;
+          }
+          if (d > 1.6) {
+            // Gå mot en punkt strax bakom spelaren och räkna om vägen då och då när spelaren rör sig
+            if (!this.path || !this.path.length || this.timer <= 0) {
+              const k = 1.1 / d;
+              this.setPath(world.nav, p.x + (this.position.x - p.x) * k, p.z + (this.position.z - p.z) * k);
+              this.timer = 0.8;
+            }
+            moving = this.followPath(dt, world);
+          } else {
+            this.path = null;
+            this.faceTowards(p.x, p.z, dt, 3);
+            this.lookTarget = player.headPos;
           }
           break;
         }
@@ -372,6 +446,11 @@ export class Character {
         default: {
           if (this.desiredHeading !== undefined) this.faceAngle(this.desiredHeading, dt, 3);
           this.idleLook(dt, world);
+          if (this.pendingGesture && this.sitAmount < 0.1) {
+            const g = this.pendingGesture;
+            this.pendingGesture = null;
+            this.startGesture(g);
+          }
           if (this.timer <= 0) {
             this.desiredHeading = undefined;
             this.chooseNext(world);
@@ -456,10 +535,173 @@ export class Character {
     return new THREE.Vector3(this.position.x, this.height - 0.1, this.position.z);
   }
 
+  get seated() {
+    return this.state === 'sitting' || this.state === 'sittingDown';
+  }
+
   wave() {
-    if (this.state === 'sitting' || this.state === 'sittingDown' || this.waving) return;
-    this.waving = true;
-    this.play('wave', 0.3);
+    if (this.seated || this.gesture) return;
+    this.startGesture('vinka');
+  }
+
+  startGesture(id) {
+    const def = GESTURES[id];
+    const clip = this.seated && def.seatedClip ? def.seatedClip : def.clip;
+    const action = this.actions[clip];
+    if (!action) return;
+    if (this.current === action) this.current = null; // spela om samma klipp från början
+    this.play(clip, 0.35);
+    this.gesture = { clip, until: def.loop ? this.age + def.loop : Infinity };
+    this.commandActive = true;
+  }
+
+  endGesture() {
+    this.gesture = null;
+    this.currentName = null; // välj ett nytt viloklipp som tonar in från gestens slutposition
+    this.commandActive = false;
+  }
+
+  // Utför något spelaren har bett om. Returnerar { ok, reason } där reason förklarar ett misslyckande.
+  command(cmd, world) {
+    const { nav, seats, pois, player } = world;
+    const place = cmd.place ? PLACES[cmd.place] : null;
+    const a = cmd.action;
+    const gesture = GESTURES[a];
+    this.pendingGesture = null;
+    if (this.gesture) this.endGesture();
+    // Avbryt en pågående väg till en stol
+    if (this.state === 'toSeat' && this.seat) {
+      if (this.seat.occupant === this) this.seat.occupant = null;
+      this.seat = null;
+    }
+    if (a === 'satt_dig' && this.seated && (!place || place.seat === this.seat?.label)) return { ok: false, reason: 'already' };
+    // Det mesta kräver att personen står upp först
+    const needsStanding = !['stanna', 'sluta_folja', 'res_dig'].includes(a) && !(gesture && gesture.seatedClip) && !(a === 'satt_dig' && this.seat && place?.seat === this.seat.label);
+    if (this.seated && needsStanding) {
+      if (a === 'satt_dig') {
+        const target = this.pickSeat(seats, place);
+        if (!target) return { ok: false, reason: 'occupied' };
+        target.occupant = this; // reservera platsen medan personen reser sig
+        this.reservedSeat = target;
+      }
+      this.queuedCommand = cmd;
+      this.state = 'standingUp';
+      this.commandActive = true;
+      return { ok: true };
+    }
+
+    switch (a) {
+      case 'lamna_rummet':
+        this.following = false;
+        this.holdUntil = 0;
+        this.stay = 0;
+        this.commandActive = true;
+        this.chooseNext(world);
+        return { ok: true };
+      case 'folj_mig':
+        this.following = true;
+        this.followUntil = this.age + 240;
+        this.holdUntil = 0;
+        this.commandActive = false;
+        this.chooseNext(world);
+        return { ok: true };
+      case 'sluta_folja':
+      case 'stanna':
+        this.following = false;
+        this.holdUntil = this.age + HOLD_TIME;
+        this.commandActive = false;
+        if (!this.seated) {
+          this.path = null;
+          this.state = 'idle';
+          this.timer = HOLD_TIME;
+        }
+        return { ok: true };
+      case 'res_dig':
+        if (!this.seated) return { ok: false, reason: 'already' };
+        this.holdUntil = this.age + HOLD_TIME;
+        this.state = 'standingUp';
+        this.commandActive = true;
+        return { ok: true };
+      case 'satt_dig': {
+        if (place && !place.seat) return { ok: false, reason: 'noSeat' };
+        let target = this.reservedSeat;
+        this.reservedSeat = null;
+        if (!target) {
+          if (this.seated && place?.seat === this.seat?.label) return { ok: false, reason: 'already' };
+          target = this.pickSeat(seats, place);
+        }
+        if (!target) return { ok: false, reason: 'occupied' };
+        if (!this.setPath(nav, target.approach[0], target.approach[1])) {
+          if (target.occupant === this) target.occupant = null;
+          return { ok: false, reason: 'noPath' };
+        }
+        target.occupant = this;
+        this.seat = target;
+        this.following = false;
+        this.holdUntil = this.age + HOLD_TIME;
+        this.state = 'toSeat';
+        this.commandActive = true;
+        return { ok: true };
+      }
+      case 'ga_till': {
+        if (!place) return { ok: false, reason: 'noPlace' };
+        if (!place.poi) return this.command({ action: 'satt_dig', place: cmd.place }, world);
+        const spots = pois.filter((p) => p.label === place.poi);
+        const spot = spots.sort((p, q) => this.dist(p) - this.dist(q))[0];
+        if (!spot || !this.setPath(nav, spot.x, spot.z)) return { ok: false, reason: 'noPath' };
+        this.poi = spot;
+        this.following = false;
+        this.holdUntil = this.age + HOLD_TIME;
+        this.state = 'toPoi';
+        this.commandActive = true;
+        return { ok: true };
+      }
+      case 'kom_hit': {
+        const p = player.position;
+        const d = Math.hypot(p.x - this.position.x, p.z - this.position.z);
+        this.following = false;
+        this.holdUntil = this.age + HOLD_TIME;
+        if (d < 1.4) {
+          this.state = 'idle';
+          this.timer = HOLD_TIME;
+          this.desiredHeading = Math.atan2(p.x - this.position.x, p.z - this.position.z);
+          return { ok: true };
+        }
+        const k = 1.0 / d;
+        if (!this.setPath(nav, p.x + (this.position.x - p.x) * k, p.z + (this.position.z - p.z) * k)) return { ok: false, reason: 'noPath' };
+        this.poi = null;
+        this.faceTarget = 'player';
+        this.state = 'toPoi';
+        this.commandActive = true;
+        return { ok: true };
+      }
+      default: {
+        if (!gesture) return { ok: false, reason: 'unknown' };
+        if (this.seated) {
+          this.startGesture(a);
+          return { ok: true };
+        }
+        // Stanna där personen är och gör gesten
+        this.following = false;
+        this.path = null;
+        this.state = 'idle';
+        this.holdUntil = Math.max(this.holdUntil, this.age + 30);
+        this.timer = Math.max(this.timer, 30);
+        this.pendingGesture = a;
+        this.commandActive = true;
+        return { ok: true };
+      }
+    }
+  }
+
+  dist(p) {
+    return Math.hypot(p.x - this.position.x, p.z - this.position.z);
+  }
+
+  // Närmaste lediga sittplats, eventuellt begränsat till en viss möbel
+  pickSeat(seats, place) {
+    const free = seats.filter((s) => (!place || s.label === place.seat) && (!s.occupant || s.occupant === this) && s !== this.seat);
+    return free.sort((a, b) => this.dist(a) - this.dist(b))[0] || null;
   }
 
   chooseClip(dt, moving) {
@@ -468,8 +710,10 @@ export class Character {
     this.sitAmount += ((seated ? 1 : 0) - this.sitAmount) * Math.min(1, dt * 2.5);
     this.walkAmount += ((moving ? 1 : 0) - this.walkAmount) * Math.min(1, dt * 6);
     this.clipTimer -= dt;
-    if (this.waving && !moving) return;
-    this.waving = false;
+    if (this.gesture) {
+      if (moving || this.age > this.gesture.until) this.endGesture();
+      else return;
+    }
 
     const name = this.currentName || '';
     if (moving) {

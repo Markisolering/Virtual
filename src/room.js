@@ -708,6 +708,7 @@ export function buildRoom(scene, quality) {
   paintingAt(-2.4, 1.75, -3.97, 0, 0.5, 0.4, 4);
   paintingAt(-2.4, 1.25, -3.97, 0, 0.5, 0.4, 6);
   pois.push({ x: -4.2, z: -1.4, face: -Math.PI / 2, label: 'tavlan' });
+  pois.push({ x: -4.25, z: 1.8, face: -Math.PI / 2, label: 'dörren' });
 
   // Väggklocka
   {
