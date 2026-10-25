@@ -603,3 +603,180 @@ body.has-update #toast {
   background: rgba(255, 255, 255, 0.1);
   font-size: 13px;
 }
+
+/* ---------- Kompakt samtalsvy ---------- */
+#talkbar {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: min(100%, 560px);
+  padding: 8px 10px calc(10px + env(safe-area-inset-bottom));
+  z-index: 20;
+}
+#talk-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  border-radius: 999px;
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+#talk-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font-size: 16px;
+  outline: none;
+}
+#talk-form button {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 17px;
+}
+#talk-form button[type='submit'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+#talk-heard {
+  margin: 0 auto 8px;
+  width: fit-content;
+  max-width: 90%;
+  padding: 6px 12px;
+  border-radius: 14px;
+  background: rgba(58, 95, 125, 0.85);
+  font-size: 14.5px;
+  line-height: 1.35;
+}
+#talk-heard.interim {
+  background: rgba(58, 95, 125, 0.55);
+  font-style: italic;
+}
+.mic-btn.listening {
+  background: #d64545 !important;
+  color: #fff;
+  animation: pulse 1s ease-in-out infinite;
+}
+#chat-form .mic-btn {
+  width: 46px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 18px;
+}
+@keyframes pulse {
+  50% {
+    box-shadow: 0 0 0 8px rgba(214, 69, 69, 0.25);
+  }
+}
+
+/* Pratbubbla ovanför personens huvud */
+#speech-bubble {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 15;
+  transform: translate(var(--x, 50vw), var(--y, 30vh)) translate(-50%, -100%);
+  max-width: min(78vw, 360px);
+  padding: 9px 14px;
+  border-radius: 18px;
+  background: rgba(250, 247, 241, 0.94);
+  color: #1d1916;
+  font-size: 15.5px;
+  line-height: 1.38;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+#speech-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  margin-left: -8px;
+  border: 8px solid transparent;
+  border-bottom: 0;
+  border-top-color: rgba(250, 247, 241, 0.94);
+}
+#speech-bubble.typing .text::after {
+  content: '• • •';
+  letter-spacing: 2px;
+  animation: blink 1s infinite;
+}
+
+/* Betygskortet flyter ovanför raden i den kompakta vyn */
+#rate-pop {
+  position: fixed;
+  left: 50%;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 21;
+  max-width: calc(100vw - 24px);
+}
+#rate-pop .rate {
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-style: solid;
+  border-color: rgba(231, 166, 90, 0.6);
+  max-width: none;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35);
+}
+body:not(.chatting) #rate-pop {
+  bottom: calc(110px + env(safe-area-inset-bottom));
+}
+
+/* ---------- Inställningar: samtal ---------- */
+.group {
+  margin: 4px 0 14px;
+  padding: 10px 12px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+.group legend {
+  padding: 0 6px;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 14px;
+}
+.card label.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+.card label.check input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+.card input[type='range'] {
+  padding: 0;
+  accent-color: var(--accent);
+}
+.small-btn {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 13.5px;
+}
+
+/* Start- och inställningssidan ligger över samtalsvyn */
+#start,
+#settings {
+  z-index: 40;
+}
+#speech-bubble i {
+  color: #6b5a48;
+}

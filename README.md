@@ -89,6 +89,19 @@ Betygen lär spelet att göra bättre rörelser (`src/learning.js`):
 - **Lärdomar:** efter varje betyg sammanfattar en "rörelsecoach" (ett separat Claude-anrop) alla betyg till en kort lista med konkreta lärdomar, t.ex. "Honnör: armbåge ca 135°". Listan följer med till alla personer och samtal.
 - Under ⚙︎ Inställningar ser du hur många rörelser som är inlärda, kan läsa lärdomarna och kan nollställa allt.
 
+## Prata med rösten
+
+Under ⚙︎ Inställningar → **Samtal** väljer du hur samtalen ska fungera:
+
+- **Samtalsvy:** *Kompakt* (standard) visar personens svar i en pratbubbla ovanför huvudet och bara en smal rad längst ner med textfält, mikrofon och skicka. *Chattruta* visar hela samtalet som förut.
+- **Personens svar:** text, röst eller båda. Rösten är svensk och lite ljusare eller mörkare beroende på person, och munnen rör sig så länge rösten talar.
+- **Mikrofonknapp:** tryck på 🎤 och prata. Det du säger skickas direkt när du har slutat prata (kan stängas av), och med **Handsfree** börjar appen lyssna igen efter varje svar, så att man kan prata fritt fram och tillbaka.
+- **Röst och taltempo:** välj bland telefonens svenska röster och testa dem.
+
+I webbläsaren används webbläsarens inbyggda taligenkänning och talsyntes (`src/voice.js`). Android-appens webbvy saknar dem, så där används telefonens egna via pluginen `@capacitor-community/speech-recognition` och `@capacitor-community/text-to-speech`. Första gången frågar appen om lov att använda mikrofonen.
+
+Betygskortet för rörelser visas i den kompakta vyn som en liten ruta ovanför raden, med rörelsens namn och 👍/👎.
+
 ## Närbildsläge
 
 Välj **Närbild** på startskärmen (eller under ⚙︎ Inställningar → Läge). Då är det bara en eller två personer i rummet åt gången, och de visas i högre detalj:
