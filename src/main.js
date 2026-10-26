@@ -126,7 +126,7 @@ const input = { joy: new THREE.Vector2(), keys: new Set() };
 const characters = [];
 let nextId = 1;
 const interactions = new Interactions({ camera });
-const simWorld = { nav, seats: world.seats, pois: world.pois, beds: world.beds, player, characters, interactions };
+const simWorld = { nav, seats: world.seats, pois: world.pois, beds: world.beds, solids: world.solids, player, characters, interactions };
 // Det som kroppen inte får gå igenom: golv och möbler, väggarna och de andra personerna i närheten
 const _bodyPos = new THREE.Vector3();
 setWorld({

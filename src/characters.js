@@ -287,6 +287,8 @@ function rotateBoneWorld(bone, axis, angle) {
 }
 
 // ---------------- Karaktären ----------------
+const NO_BONES = new Set();
+
 // Hur snabbt varje led följer rörelsen (Hz). Lägre = mer eftersläpning och mjukare.
 function springFreq(k) {
   if (/^(hojd|kropp_|snurra|volt|hjulning|rulla|luft)/.test(k)) return 9;
@@ -498,6 +500,12 @@ export class Character {
   }
 
   update(dt, world) {
+    // Hur snabbt personen vrider sig (för att ta steg när man vänder sig på stället)
+    if (dt > 0) {
+      const turn = Math.abs(angleDiff(this.lastHeading ?? this.heading, this.heading)) / dt;
+      this.turnRate = (this.turnRate || 0) + (turn - (this.turnRate || 0)) * Math.min(1, dt * 8);
+      this.lastHeading = this.heading;
+    }
     // I redigeraren står personen still i den pose spelaren justerar
     if (this.editing) {
       this.applyEditPose();
@@ -753,6 +761,87 @@ export class Character {
     if (GESTURE_FACE[clip]) this.setExpression(GESTURE_FACE[clip], def.loop || action.getClip().duration);
   }
 
+  // ---------- Sitta rätt ----------
+  // Sittanimationerna är gjorda för en annan stol än möblerna i rummet. Kroppen lyfts eller sänks så
+  // att baken och låren vilar på sitsen, och flyttas fram så att knäna hamnar framför sitsens kant.
+  seatSolid(world) {
+    const seat = this.seat;
+    if (!seat || !world.solids) return null;
+    if (this._seatFor === seat) return this._seatSolid;
+    this._seatFor = seat;
+    this._seatSolid =
+      world.solids
+        .filter((s) => seat.x >= s.x1 && seat.x <= s.x2 && seat.z >= s.z1 && seat.z <= s.z2 && s.y2 < 0.75 && Math.abs(s.y2 - seat.height) < 0.2)
+        .sort((a, b) => b.y2 - a.y2)[0] || null;
+    return this._seatSolid;
+  }
+
+  fitSeat(dt, world) {
+    this.fit ||= { y: 0, z: 0 };
+    let ty = 0;
+    let tz = 0;
+    const s = this.sitAmount > 0.02 && !this.motion?.wholeBody ? this.seatSolid(world) : null;
+    if (s) {
+      const b = this.rig.b;
+      const P = (bone) => bone.getWorldPosition(new THREE.Vector3());
+      const over = (p) => p.x > s.x1 - 0.02 && p.x < s.x2 + 0.02 && p.z > s.z1 - 0.02 && p.z < s.z2 + 0.02;
+      // Baken (höftleden) och mitten av låren
+      const pts = [[P(b.pelvis), 0.1]];
+      for (const x of [b.R, b.L]) pts.push([P(x.thigh).lerp(P(x.calf), 0.5), 0.075]);
+      let min = Infinity;
+      for (const [p, r] of pts) if (over(p)) min = Math.min(min, p.y - r - s.y2);
+      if (Number.isFinite(min)) ty = Math.max(-0.2, Math.min(0.25, -min));
+      // Knäna framför sitsens framkant (sitsens sida åt det håll personen tittar)
+      const fx = Math.sin(this.heading);
+      const fz = Math.cos(this.heading);
+      const front = Math.max(s.x1 * fx, s.x2 * fx) + Math.max(s.z1 * fz, s.z2 * fz);
+      for (const x of [b.R, b.L]) {
+        const k = P(x.calf);
+        if (k.y + ty - 0.06 > s.y2) continue;
+        const need = front + 0.06 - (k.x * fx + k.z * fz);
+        if (need > 0) tz = Math.max(tz, Math.min(0.2, need));
+      }
+    }
+    const w = Math.min(1, this.sitAmount * 1.5);
+    const k = Math.min(1, dt * 6);
+    this.fit.y += (ty * w - this.fit.y) * k;
+    this.fit.z += (tz * w - this.fit.z) * k;
+    if (Math.abs(this.fit.y) < 1e-4 && Math.abs(this.fit.z) < 1e-4 && !this.fit.lean) return;
+    this.model.position.y += this.fit.y;
+    this.model.position.z += this.fit.z;
+    this.root.updateMatrixWorld(true);
+    // Luta dig bakåt mot ryggstödet om det finns ett (och inte en egen rörelse styr överkroppen)
+    let lean = 0;
+    const back = s && !this.motion ? this.seatBack(world) : null;
+    if (back) {
+      const b = this.rig.b;
+      const fx = Math.sin(this.heading);
+      const fz = Math.cos(this.heading);
+      const plane = Math.max(back.x1 * fx, back.x2 * fx) + Math.max(back.z1 * fz, back.z2 * fz);
+      const top = (b.spine[b.spine.length - 1] || b.neck).getWorldPosition(new THREE.Vector3());
+      const hip = b.pelvis.getWorldPosition(new THREE.Vector3());
+      const gap = top.x * fx + top.z * fz - 0.12 - plane;
+      const len = Math.max(0.2, top.distanceTo(hip));
+      if (gap > 0) lean = Math.min(28, (Math.asin(Math.min(1, gap / len)) * 180) / Math.PI);
+    }
+    this.fit.lean = (this.fit.lean || 0) + (lean * w - (this.fit.lean || 0)) * k;
+    if (this.fit.lean > 0.05) {
+      this.rig.leanBack(this.fit.lean);
+      this.root.updateMatrixWorld(true);
+    }
+  }
+
+  // Ryggstödet bakom sittplatsen (en hög låda strax bakom sitsens mitt)
+  seatBack(world) {
+    const seat = this.seat;
+    if (this._backFor === seat) return this._back;
+    this._backFor = seat;
+    const x = seat.x - Math.sin(seat.face) * 0.35;
+    const z = seat.z - Math.cos(seat.face) * 0.35;
+    this._back = world.solids.filter((s) => s.y2 > 0.75 && s.y2 < 1.3 && x >= s.x1 - 0.05 && x <= s.x2 + 0.05 && z >= s.z1 - 0.05 && z <= s.z2 + 0.05).sort((a, b) => a.y1 - b.y1)[0] || null;
+    return this._back;
+  }
+
   // ---------- Avaturn ----------
   // Avataren ritas, Rocketbox-modellen blir ett osynligt skelett som allt annat (animationer, egna
   // rörelser, kollisioner, redigeraren) styr. Rocketbox-modellen skalas till avatarens storlek.
@@ -943,8 +1032,10 @@ export class Character {
         if (!world.nav.walkable(...world.nav.cellOf(x, z))) continue;
         this.position.x = x;
         this.position.z = z;
-        if (fwd) shift.kropp_framat = fwd * f * 100;
-        if (side) shift.kropp_sidled = side * f * 100;
+        // Resten av vägen (det som inte flyttades) ligger kvar i rörelsen, och knuffen nollställs
+        if (last.kropp_framat) shift.kropp_framat = last.kropp_framat - fwd * (1 - f) * 100;
+        if (last.kropp_sidled) shift.kropp_sidled = last.kropp_sidled - side * (1 - f) * 100;
+        this.rig.carry?.set(0, 0, 0);
         break;
       }
     }
@@ -1275,6 +1366,14 @@ export class Character {
     }
 
     const name = this.currentName || '';
+    // Vänder sig personen på stället tar hen små steg i stället för att glida runt på fötterna
+    const turning = !moving && !seated && !this.motion && this.turnRate > 1.1;
+    if (turning) {
+      this.play('walk', 0.25);
+      this.actions.walk.setEffectiveTimeScale(0.55);
+      this.clipTimer = 0;
+      return;
+    }
     if (moving) {
       this.play('walk', 0.3);
       this.actions.walk.setEffectiveTimeScale(Math.max(0.4, (this.currentSpeed || this.speed) / (WALK_CLIP_SPEED * this.model.scale.x)));
@@ -1310,6 +1409,10 @@ export class Character {
     this.mixer.update(dt);
     this.root.updateMatrixWorld(true);
     this.updateMotion(dt, world);
+    // Sittande passas in på sitsen, och armarna hålls utanför möbler även i de vanliga animationerna
+    if (!this.motion) this.model.position.set(0, 0, 0);
+    this.fitSeat(dt, world);
+    if (!this.motion) this.rig.fixLimbs([], this.seat && this.sitAmount > 0.3 ? this.rig.calves : NO_BONES);
 
     // Huvud och nacke vänds mot det personen tittar på. Korrigeringen räknas från huvudets
     // faktiska riktning i animationen, så att personen får riktig ögonkontakt.

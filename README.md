@@ -92,6 +92,9 @@ AI:n är inte begränsad till de inspelade animationerna. Med `hela_kroppen` sty
 - **Kontakt med golv och möbler:** den som sitter, ligger, står på knä eller på händerna vilar mot underlaget. Med `luft` lämnar kroppen marken (hopp och voltor).
 - **Inget går igenom något:** möblerna och väggarna finns som lådor och de andra personerna som kapslar. Går kroppen in i något knuffas den ut åt det håll den kom ifrån, och armar och ben vrids ut i sina leder, så att en hand som trycks mot bordet stannar på bordsskivan och den som rullar mot soffan stannar mot den.
 - **Förflyttning:** slutar en rörelse på ett annat ställe (kullerbytta, hjulning) står personen kvar där efteråt.
+- **Sitta rätt:** sittanimationerna är gjorda för en annan stol än möblerna. Den som sitter lyfts eller sänks så att baken och låren vilar på sitsen, flyttas fram så att knäna hamnar framför sitsens kant, och lutar sig mot ryggstödet om det finns ett. Möblerna har sina riktiga mått (dynor, rygg, armstöd och fritt utrymme under sitsen).
+- **Armar och fötter utanför möbler** även i de vanliga animationerna, t.ex. händer mot armstödet eller fötterna under en stol.
+- **Steg när man vänder sig:** den som vrider sig på stället tar små steg i stället för att glida runt på fötterna.
 - **Resa sig:** "res dig" från golvet eller en möbel spelar en riktig rörelse: sätta sig upp, gå upp på huk och ställa sig.
 
 Färdiga rörelser som fungerar utan AI: *hoppa*, *slå en kullerbytta*, *bakåtvolt*, *hjula*, *stå på händerna*, *rulla runt*, *lägg dig*, *lägg dig på magen*, *sätt dig på golvet*, *ställ dig på knä*, *lägg dig på bordet / soffbordet / i soffan*, *sätt dig på bordet / soffbordet* och *res dig*.
