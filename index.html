@@ -100,6 +100,23 @@
           </select>
         </label>
         <fieldset class="group">
+          <legend>Personer</legend>
+          <label>Vilka personer
+            <select id="set-people">
+              <option value="rocketbox">Inbyggda (Rocketbox)</option>
+              <option value="avaturn">Egna avatarer från Avaturn</option>
+            </select>
+          </label>
+          <div id="avaturn-panel">
+            <p class="note">Skapa en avatar i Avaturn (från selfies eller färdiga kroppar och kläder) och tryck på Exportera, eller ladda upp en GLB-fil som du har laddat ner från avaturn.me. Avatarerna rör sig precis som de inbyggda personerna.</p>
+            <ul id="avaturn-list"></ul>
+            <div class="avaturn-buttons">
+              <button type="button" id="avaturn-create" class="small-btn">Skapa med Avaturn</button>
+              <label class="small-btn file-btn">Ladda upp GLB-fil<input type="file" id="avaturn-file" accept=".glb,model/gltf-binary" hidden /></label>
+            </div>
+          </div>
+        </fieldset>
+        <fieldset class="group">
           <legend>Samtal</legend>
           <label>Samtalsvy
             <select id="set-view">
@@ -185,6 +202,15 @@
           <button type="button" id="pose-save" class="primary">Spara och lär</button>
         </div>
       </div>
+    </div>
+
+    <!-- Avaturns redigerare -->
+    <div id="avaturn-overlay" hidden>
+      <div class="avaturn-top">
+        <span>Skapa din avatar och tryck på <b>Export</b> när du är klar.</span>
+        <button type="button" id="avaturn-close" aria-label="Stäng">✕</button>
+      </div>
+      <div id="avaturn-host"></div>
     </div>
 
     <div id="mic-status" class="mic-status" hidden aria-live="polite"></div>

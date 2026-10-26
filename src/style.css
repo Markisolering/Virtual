@@ -989,3 +989,72 @@ body.editing .npc-bubble {
   background: rgba(231, 166, 90, 0.85) !important;
   color: #1d1206;
 }
+
+/* ---------- Avaturn ---------- */
+#avaturn-list {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#avaturn-list li {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+#avaturn-list input {
+  flex: 1;
+  min-width: 0;
+}
+#avaturn-list select {
+  width: auto;
+}
+#avaturn-list button {
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.avaturn-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.file-btn {
+  cursor: pointer;
+}
+#avaturn-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-solid);
+}
+.avaturn-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+  font-size: 14px;
+}
+.avaturn-top span {
+  flex: 1;
+}
+.avaturn-top button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+}
+#avaturn-host {
+  flex: 1;
+  position: relative;
+}
+#avaturn-host iframe,
+.avaturn-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}

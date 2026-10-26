@@ -143,6 +143,19 @@ Mikrofonknappen slår inspelningen **på och av**. När den är på lyssnar spel
 
 En rad högst upp visar hela tiden vad mikrofonen gör: 🔴 *Lyssnar*, det den hör medan du pratar, ✓ *Uppfattat: …* när meningen har gått iväg, ⏸ *Väntar på svaret* och *Hörde inget*. Knappen är röd när den lyssnar och orange när den väntar. I inställningarna kan du i stället välja *En mening per tryck*.
 
+## Egna avatarer från Avaturn
+
+Under ⚙︎ Inställningar → *Personer* kan du välja **Egna avatarer från Avaturn** i stället för de inbyggda personerna.
+
+- **Skapa med Avaturn** öppnar Avaturns redigerare i spelet. Där skapar du en fotorealistisk avatar (från selfies eller färdiga kroppar, frisyrer och kläder) och trycker på *Export*.
+- **Ladda upp GLB-fil** tar en avatar som du har laddat ner från avaturn.me. Det fungerar också med andra avatarer med standardskelett, till exempel Ready Player Me och Mixamo.
+- Avatarerna sparas i webbläsaren. I listan kan du ge dem namn, ange kön och ta bort dem.
+
+Avatarerna rör sig precis som de inbyggda personerna, med samma animationer, egna rörelser, leder, kollisioner, redigerare, kläder och interaktioner (`src/retarget.js`). Ett osynligt Rocketbox-skelett gör allt som vanligt, och varje bildruta förs posen över till avataren:
+- Båda skeletten ställs i samma T-pose när avataren laddas, så det spelar ingen roll om den sparades i T- eller A-pose.
+- Det osynliga skelettets delar (rygg, armar, ben) görs lika långa som avatarens, så att händer och huvud hamnar på samma ställe.
+- Ansiktsuttryck, blinkningar och läppsynk används om avataren har ARKit-uttryck (som Avaturn).
+
 ## Närbildsläge
 
 Välj **Närbild** på startskärmen (eller under ⚙︎ Inställningar → Läge). Då är det bara en eller två personer i rummet åt gången, och de visas i högre detalj:
@@ -189,4 +202,7 @@ src/dialogue.js     Inbyggd dialogmotor och Claude-integration
 src/editor.js       Redigeraren där spelaren visar hur en rörelse ska se ut
 src/clothes.js      Byta kläder (färga om överdel, underdel och skor)
 src/interact.js     Personer som gör saker med varandra
+src/avaturn.js      Egna avatarer: Avaturns redigerare, uppladdning och lagring i IndexedDB
+src/retarget.js     För över posen från Rocketbox-skelettet till en avatar med standardskelett
+public/draco/       Draco-avkodare för komprimerade avatarer
 ```
