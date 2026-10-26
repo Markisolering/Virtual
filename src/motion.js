@@ -684,6 +684,8 @@ export class MotionRig {
     }
     // Fingrarnas böjningsaxel: tvärs över handflatan, mätt i neutral pose (handen hänger med handflatan inåt)
     this.prev = new Map();
+    // Underbenen, som får vridas ut ur möbler även när en vanlig animation styr (t.ex. fötter under en stol)
+    this.calves = new Set([this.b.R.calf, this.b.L.calf].filter(Boolean));
     this.fingerAxis = {};
     this.handDir = {};
     this.palmNormal = {};
@@ -917,8 +919,16 @@ export class MotionRig {
     }
   }
 
-  // Flytta hela kroppen ut ur möbler, väggar och andra personer
+  // Flytta hela kroppen ut ur möbler, väggar och andra personer. Knuffen i sidled sparas till nästa
+  // bildruta och släpps långsamt, så att en rörelse som vill fortsätta in i en möbel (en kullerbytta mot
+  // soffan) stannar framför den i stället för att till slut tryckas igenom till andra sidan.
   pushBody(contact, bodies) {
+    const carry = (this.carry ||= new THREE.Vector3());
+    carry.multiplyScalar(0.92);
+    if (carry.lengthSq() > 1e-8) {
+      this.model.position.addScaledVector(carry, contact);
+      this.model.updateMatrixWorld(true);
+    }
     const total = _pos;
     for (let iter = 0; iter < 5; iter++) {
       let px = 0;
@@ -943,9 +953,21 @@ export class MotionRig {
       if (total.lengthSq() < 1e-6) break;
       // Förflyttningen räknas i rotens koordinater (roten är bara vriden runt y)
       this.model.parent.getWorldQuaternion(_q).invert();
-      this.model.position.addScaledVector(total.applyQuaternion(_q), contact);
+      total.applyQuaternion(_q);
+      this.model.position.addScaledVector(total, contact);
+      carry.x += total.x;
+      carry.z += total.z;
       this.model.updateMatrixWorld(true);
     }
+  }
+
+  // Luta överkroppen bakåt (grader) runt höften, t.ex. mot en stolsrygg; nacken tar tillbaka en del så att
+  // blicken stannar kvar
+  leanBack(deg) {
+    const base = this.torso[0];
+    if (!base || Math.abs(deg) < 0.05) return;
+    this.rotate(base, this.axis(base, RIGHT).clone(), deg);
+    if (this.b.neck) this.rotate(this.b.neck, this.axis(this.b.neck, RIGHT).clone(), -deg * 0.5);
   }
 
   // Hur djupt någon del av kroppen är inne i något just nu (meter), för felsökning och tester
@@ -1062,6 +1084,7 @@ export class MotionRig {
   }
 
   reset() {
+    this.carry?.set(0, 0, 0);
     this.model.position.set(0, 0, 0);
     this.model.rotation.set(0, 0, 0);
     if (this.rootRest && this.b.root) this.b.root.position.copy(this.rootRest);
