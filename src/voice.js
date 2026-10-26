@@ -199,19 +199,24 @@ export const voice = {
   // Läser upp texten. onStart anropas när rösten börjar; löftet uppfylls när den har slutat.
   speaking: false,
 
-  async speak(text, { rate = 1, pitch = 1, voiceId = '', onStart } = {}) {
+  // onWord(teckenindex) anropas när rösten börjar säga ett nytt ord (för läppsynken). Indexet gäller
+  // texten efter speakable(), som är det som läses upp.
+  async speak(text, { rate = 1, pitch = 1, voiceId = '', onStart, onWord } = {}) {
     const words = speakable(text);
     if (!words) return;
     this.cancel();
     this.speaking = true;
+    let handle = null;
     try {
-      await this._speak(words, { rate, pitch, voiceId, onStart });
+      if (native && onWord) handle = await NativeTTS.addListener('onRangeStart', (info) => onWord(info.start)).catch(() => null);
+      await this._speak(words, { rate, pitch, voiceId, onStart, onWord });
     } finally {
+      handle?.remove?.();
       this.speaking = false;
     }
   },
 
-  async _speak(words, { rate, pitch, voiceId, onStart }) {
+  async _speak(words, { rate, pitch, voiceId, onStart, onWord }) {
     if (native) {
       onStart?.();
       const opts = { text: words, lang: LANG, rate, pitch, volume: 1, category: 'playback' };
@@ -236,6 +241,9 @@ export const voice = {
         // Ogiltig röst: använd webbläsarens standardröst för svenska
       }
       u.onstart = () => onStart?.();
+      u.onboundary = (e) => {
+        if (e.name === 'word' || e.name === undefined) onWord?.(e.charIndex);
+      };
       u.onend = resolve;
       u.onerror = resolve;
       try {
