@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.131.0",
+    "@avaturn/sdk": "^1.1.4",
     "@capacitor-community/speech-recognition": "7.0.1",
     "@capacitor-community/text-to-speech": "8.0.2",
     "@capacitor/android": "8.5.3",

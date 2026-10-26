@@ -12,6 +12,7 @@ import { OfflineBrain, ClaudeBrain, loadSettings, saveSettings, DEFAULT_MODEL, a
 import { rateMotion, updateLessons, motionLessons, learnedCount, resetLearning, recordCorrection } from './learning.js';
 import { PoseEditor } from './editor.js';
 import { Interactions } from './interact.js';
+import { listAvatars, saveAvatar, updateAvatar, deleteAvatar, isGlb, createWithAvaturn } from './avaturn.js';
 import { parseCommand, commandReply } from './commands.js';
 import { PRESETS, findMotion, motionTitle, setWorld } from './motion.js';
 import { voice } from './voice.js';
@@ -35,6 +36,7 @@ let settings = {
   ...loadSettings(),
 };
 library.filter = settings.show;
+library.avaturn = settings.people === 'avaturn';
 // Närbild: en eller två personer åt gången, detaljerade modeller med ansiktsuttryck och högsta grafikkvalitet
 const closeup = settings.mode === 'closeup';
 if (closeup) {
@@ -1105,6 +1107,7 @@ library
     library.model(nextEntry.id).catch(() => {});
     startBtn.disabled = false;
     startBtn.textContent = 'Gå in';
+    if (library.avaturnMissing) toast('Du har inga Avaturn-avatarer än. Skapa en under ⚙︎ Inställningar – så länge visas de inbyggda personerna.');
   })
   .catch((err) => {
     console.error(err);
@@ -1131,6 +1134,8 @@ function openSettings() {
   $('set-quality').value = settings.quality || 'auto';
   $('set-show').value = settings.show || 'all';
   $('set-mode').value = settings.mode || 'room';
+  $('set-people').value = settings.people || 'rocketbox';
+  fillAvaturn();
   $('set-key').value = settings.apiKey || '';
   $('set-model').value = settings.model || DEFAULT_MODEL;
   $('set-view').value = settings.view || 'compact';
@@ -1189,11 +1194,13 @@ $('learn-reset').addEventListener('click', () => {
   fillLearning();
   toast('Allt inlärt om rörelser är borttaget.');
 });
-$('set-save').addEventListener('click', () => {
+$('set-save').addEventListener('click', async () => {
   const prevShow = settings.show;
   const prevMode = settings.mode;
+  const prevPeople = settings.people || 'rocketbox';
   settings = {
     mode: $('set-mode').value,
+    people: $('set-people').value,
     quality: $('set-quality').value,
     show: $('set-show').value,
     apiKey: $('set-key').value.trim(),
@@ -1208,7 +1215,9 @@ $('set-save').addEventListener('click', () => {
   };
   saveSettings(settings);
   // Läget avgör vilka modeller som laddas, så appen startas om
-  if (settings.mode !== prevMode) {
+  // Avaturn var valt men saknade avatarer: nu finns det några
+  const newAvatars = settings.people === 'avaturn' && library.avaturnMissing && (await listAvatars()).length > 0;
+  if (settings.mode !== prevMode || settings.people !== prevPeople || newAvatars) {
     location.reload();
     return;
   }
@@ -1221,6 +1230,71 @@ $('set-save').addEventListener('click', () => {
   if (settings.show !== prevShow) applyShowFilter();
   else toast(settings.apiKey ? 'AI-samtal är på.' : 'Inbyggd samtalsmotor används.');
 });
+
+// ---------------- Egna avatarer från Avaturn ----------------
+async function fillAvaturn() {
+  $('avaturn-panel').hidden = $('set-people').value !== 'avaturn';
+  const ul = $('avaturn-list');
+  const list = await listAvatars();
+  ul.innerHTML = '';
+  if (!list.length) ul.innerHTML = '<li class="note">Inga avatarer ännu.</li>';
+  for (const a of list) {
+    const li = document.createElement('li');
+    li.innerHTML = `<input type="text" maxlength="30" aria-label="Namn" /><select aria-label="Kön"><option value="f">Kvinna</option><option value="m">Man</option></select><button type="button" aria-label="Ta bort">🗑</button>`;
+    const [name, gender, del] = li.children;
+    name.value = a.name;
+    gender.value = a.gender;
+    name.addEventListener('change', () => updateAvatar(a.id, { name: name.value.trim() || a.name }));
+    gender.addEventListener('change', () => updateAvatar(a.id, { gender: gender.value }));
+    del.addEventListener('click', async () => {
+      if (!confirm(`Ta bort ${a.name}?`)) return;
+      await deleteAvatar(a.id);
+      fillAvaturn();
+    });
+    ul.appendChild(li);
+  }
+}
+$('set-people').addEventListener('change', fillAvaturn);
+
+async function addAvatar(blob, gender) {
+  if (!(await isGlb(blob))) {
+    toast('Filen är ingen GLB-modell.');
+    return;
+  }
+  const count = (await listAvatars()).length;
+  const name = `Avatar ${count + 1}`;
+  const id = await saveAvatar(blob, { name, gender });
+  $('set-people').value = 'avaturn';
+  await fillAvaturn();
+  // Är Avaturn redan valt kan avataren komma in i rummet direkt
+  if (library.avaturn) {
+    library.list.push({ id, gender, name, avaturn: true });
+    toast('Avataren är sparad och kommer snart in i rummet.');
+  } else toast('Avataren är sparad. Tryck på Spara för att använda Avaturn-avatarer.');
+}
+
+$('avaturn-file').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (file) await addAvatar(file, 'f');
+});
+
+$('avaturn-create').addEventListener('click', async () => {
+  const overlay = $('avaturn-overlay');
+  const host = $('avaturn-host');
+  host.innerHTML = '';
+  overlay.hidden = false;
+  try {
+    const result = await createWithAvaturn(host);
+    overlay.hidden = true;
+    if (result) await addAvatar(result.blob, result.gender);
+  } catch (err) {
+    console.error(err);
+    overlay.hidden = true;
+    toast('Kunde inte öppna eller spara från Avaturn. Du kan i stället ladda upp en GLB-fil från avaturn.me.');
+  }
+});
+$('avaturn-close').addEventListener('click', () => $('avaturn-host').closeAvaturn?.());
 
 // ---------------- App-installation ----------------
 const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone;

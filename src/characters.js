@@ -7,6 +7,8 @@ import { makePersona } from './persona.js';
 import { GESTURES, PLACES } from './commands.js';
 import { MotionRig, prepareMotion, sampleMotion, PRESETS, lieOnMotion, sitOnMotion } from './motion.js';
 import { Wardrobe, randomOutfit } from './clothes.js';
+import { Retarget } from './retarget.js';
+import { listAvatars, avatarBlob } from './avaturn.js';
 
 export { PERSONALITIES } from './persona.js';
 
@@ -80,6 +82,29 @@ const GESTURE_FACE = { laugh: 'laugh', cheer: 'happy', clap: 'happy', dance: 'ha
 const ONCE_CLIPS = new Set(['wave', 'clap', 'cheer', 'laugh', 'shrug', 'sitShrug', 'stretch', 'yawn', 'photo', 'think']);
 const BASE = import.meta.env.BASE_URL;
 
+// Uttrycken heter olika i olika modeller: Rocketbox "AK_25_JawOpen" och "AA_VI_10_aa",
+// Avaturn (ARKit) "jawOpen", Ready Player Me "viseme_aa" och "mouthOpen". Namnen jämförs förenklade.
+const morphKey = (name) => {
+  const n = name.toLowerCase().replace(/^ak_\d+_/, '');
+  const vis = n.match(/^aa_vi_\d+_(.+)$/);
+  return vis ? `viseme_${vis[1]}` : n.replace(/[^a-z0-9_]/g, '');
+};
+const MORPH_ALIASES = { jawopen: ['mouthopen'], mouthsmileleft: ['mouthsmile'], mouthsmileright: ['mouthsmile'], eyeblinkleft: ['eyesclosed', 'blink'], eyeblinkright: ['eyesclosed', 'blink'] };
+function morphIndex(mesh, name) {
+  const cache = (mesh.userData.morphCache ||= {});
+  if (name in cache) return cache[name];
+  const dict = mesh.morphTargetDictionary;
+  let i = dict[name];
+  if (i === undefined) {
+    const lookup = (mesh.userData.morphLookup ||= Object.fromEntries(Object.entries(dict).map(([k, v]) => [morphKey(k), v])));
+    const key = morphKey(name);
+    i = lookup[key];
+    for (const alias of MORPH_ALIASES[key] || []) if (i === undefined) i = lookup[alias];
+  }
+  cache[name] = i;
+  return i;
+}
+
 // ---------------- Modellbibliotek ----------------
 // Fotorealistiska avatarer från Microsoft Rocketbox (MIT-licens), konverterade med tools/convert-rocketbox.mjs
 class AvatarLibrary {
@@ -92,6 +117,14 @@ class AvatarLibrary {
     this.filter = 'all'; // 'all' | 'f' | 'm': vilka som får komma in i rummet
     this.dir = 'avatars'; // 'avatars-hq' i närbildsläget: detaljerade modeller med ansiktsuttryck
     this.initialCount = 3;
+    // Egna avatarer från Avaturn i stället för de inbyggda. De styrs av ett osynligt Rocketbox-skelett.
+    this.avaturn = false;
+  }
+
+  // Rocketbox-modellen som styr en Avaturn-avatar (samma kön, så att animationerna passar)
+  driverFor(gender) {
+    const same = this.standard.filter((a) => a.gender === gender);
+    return (same.find((a) => /_01$/.test(a.id)) || same[0] || this.standard[0]).id;
   }
 
   allowed(entry) {
@@ -100,7 +133,17 @@ class AvatarLibrary {
 
   async init(onProgress) {
     const res = await fetch(`${BASE}${this.dir}/index.json`);
-    this.list = await res.json();
+    this.standard = await res.json();
+    this.list = this.standard;
+    if (this.avaturn) {
+      const own = await listAvatars();
+      if (own.length) this.list = own.map((a) => ({ id: a.id, gender: a.gender, name: a.name, avaturn: true }));
+      else {
+        // Inga egna avatarer ännu: använd de inbyggda så länge
+        this.avaturn = false;
+        this.avaturnMissing = true;
+      }
+    }
     let done = 0;
     const tick = () => onProgress?.(++done / (2 + this.initialCount));
     await Promise.all(['f', 'm'].map((g) => this.animations(g).then(tick)));
@@ -111,7 +154,7 @@ class AvatarLibrary {
       const e = pick(pool);
       if (!this.initial.includes(e)) this.initial.push(e);
     }
-    await Promise.all(this.initial.map((a) => this.model(a.id).then(tick)));
+    await Promise.all(this.initial.map((a) => (a.avaturn ? Promise.all([this.model(a.id), this.model(this.driverFor(a.gender))]) : this.model(a.id)).then(tick)));
     onProgress?.(1);
   }
 
@@ -119,11 +162,29 @@ class AvatarLibrary {
     return new Promise((resolve, reject) => this.loader.load(url, resolve, undefined, reject));
   }
 
+  // Egna avatarer läses från webbläsarens databas
+  async loadOwn(id) {
+    const blob = await avatarBlob(id);
+    if (!blob) throw new Error(`Avataren ${id} finns inte`);
+    const url = URL.createObjectURL(blob);
+    try {
+      if (!this.dracoReady) {
+        // Avaturn kan komprimera modellerna med Draco
+        const { DRACOLoader } = await import('three/examples/jsm/loaders/DRACOLoader.js');
+        this.loader.setDRACOLoader(new DRACOLoader().setDecoderPath(`${BASE}draco/`));
+        this.dracoReady = true;
+      }
+      return await this.load(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
   model(id) {
     if (!this.models.has(id)) {
       this.models.set(
         id,
-        this.load(`${BASE}${this.dir}/${id}.glb`).then((gltf) => {
+        (id.startsWith('av_') ? this.loadOwn(id) : this.load(`${BASE}${this.dir}/${id}.glb`)).then((gltf) => {
           gltf.scene.traverse((o) => {
             if (o.isMesh) {
               o.castShadow = true;
@@ -169,6 +230,10 @@ class AvatarLibrary {
   async create(entry = this.pickEntry()) {
     this.inUse.set(entry.id, (this.inUse.get(entry.id) || 0) + 1);
     try {
+      if (entry.avaturn) {
+        const [own, driver, anim] = await Promise.all([this.model(entry.id), this.model(this.driverFor(entry.gender)), this.animations(entry.gender)]);
+        return { entry, scene: SkeletonUtils.clone(driver.scene), anim, avatar: SkeletonUtils.clone(own.scene) };
+      }
       const [gltf, anim] = await Promise.all([this.model(entry.id), this.animations(entry.gender)]);
       return { entry, scene: SkeletonUtils.clone(gltf.scene), anim };
     } catch (e) {
@@ -237,7 +302,7 @@ function springFreq(k) {
 export class Character {
   constructor(id, asset) {
     this.id = id;
-    const { entry, scene, anim } = asset;
+    const { entry, scene, anim, avatar } = asset;
     this.avatarId = entry.id;
     this.gender = entry.gender;
     this.persona = makePersona(entry.gender === 'f' ? 'kvinna' : 'man');
@@ -279,15 +344,18 @@ export class Character {
     this.expressionUntil = 0;
     this.morphState = {};
     this.saccade = { x: 0, y: 0, timer: 0 };
-    this.setupModel(scene, anim);
+    this.setupModel(scene, anim, avatar);
   }
 
-  setupModel(scene, anim) {
+  setupModel(scene, anim, avatar) {
     const model = scene;
     model.scale.setScalar(rand(0.97, 1.04));
     this.root.add(model);
     this.model = model;
-    this.wardrobe = new Wardrobe(model);
+    // Det som syns: Rocketbox-modellen själv, eller en Avaturn-avatar som följer den osynliga modellen
+    this.visual = model;
+    if (avatar) this.attachAvatar(model, avatar);
+    this.wardrobe = new Wardrobe(this.visual, { outfitOnly: !!avatar });
     const nodes = {};
     model.traverse((o) => (nodes[o.name] = o));
     this.bones = {
@@ -305,7 +373,7 @@ export class Character {
     this.eyeForward = this.bones.eyes.map(forwardIn);
     // Delar av modellen som har ansiktsuttryck (morph targets)
     this.faceMeshes = [];
-    model.traverse((o) => o.morphTargetDictionary && Object.keys(o.morphTargetDictionary).length && this.faceMeshes.push(o));
+    this.visual.traverse((o) => o.morphTargetDictionary && Object.keys(o.morphTargetDictionary).length && this.faceMeshes.push(o));
     // Ansiktsbenen saknar animationsspår, så vi återställer dem själva varje bildruta
     this.rest = {
       jaw: this.bones.jaw?.quaternion.clone(),
@@ -433,6 +501,7 @@ export class Character {
     // I redigeraren står personen still i den pose spelaren justerar
     if (this.editing) {
       this.applyEditPose();
+      this.retarget?.apply();
       return;
     }
     this.age += dt;
@@ -684,6 +753,42 @@ export class Character {
     if (GESTURE_FACE[clip]) this.setExpression(GESTURE_FACE[clip], def.loop || action.getClip().duration);
   }
 
+  // ---------- Avaturn ----------
+  // Avataren ritas, Rocketbox-modellen blir ett osynligt skelett som allt annat (animationer, egna
+  // rörelser, kollisioner, redigeraren) styr. Rocketbox-modellen skalas till avatarens storlek.
+  attachAvatar(model, avatar) {
+    model.traverse((o) => o.isMesh && (o.visible = false));
+    avatar.traverse((o) => {
+      if (!o.isMesh) return;
+      o.castShadow = true;
+      o.receiveShadow = true;
+      o.frustumCulled = false;
+      if (o.material) o.material.envMapIntensity = 0.9;
+    });
+    this.root.add(avatar);
+    this.root.updateMatrixWorld(true);
+    let hips = null;
+    avatar.traverse((o) => o.isBone && !hips && /hips$/i.test(o.name) && (hips = o));
+    const pelvis = model.getObjectByName('Bip01_Pelvis');
+    if (hips && pelvis) {
+      model.scale.setScalar(1);
+      this.root.updateMatrixWorld(true);
+      const ratio = hips.getWorldPosition(new THREE.Vector3()).y / pelvis.getWorldPosition(new THREE.Vector3()).y;
+      if (ratio > 0.5 && ratio < 2) model.scale.setScalar(ratio);
+      this.root.updateMatrixWorld(true);
+    }
+    this.retarget = new Retarget(this.root, model, avatar);
+    if (!this.retarget.ok) {
+      // Okänt skelett: visa Rocketbox-modellen i stället
+      console.warn('Avataren har ett skelett som inte känns igen; visar en inbyggd person i stället.');
+      this.root.remove(avatar);
+      model.traverse((o) => o.isMesh && (o.visible = true));
+      this.retarget = null;
+      return;
+    }
+    this.visual = avatar;
+  }
+
   // ---------- Redigeraren (spelaren visar hur rörelsen ska se ut) ----------
   startEdit(def, used) {
     this.stopMotion();
@@ -881,7 +986,7 @@ export class Character {
 
   setMorph(name, value) {
     for (const m of this.faceMeshes) {
-      const i = m.morphTargetDictionary[name];
+      const i = morphIndex(m, name);
       if (i !== undefined) m.morphTargetInfluences[i] = value;
     }
   }
@@ -919,6 +1024,10 @@ export class Character {
     } else {
       this.speech = null;
     }
+
+    // Öppen mun i en egen rörelse
+    const kake = this.motion?.pose?.kake;
+    if (kake > 0) add('AK_25_JawOpen', Math.min(1, kake / 30));
 
     // Blinkningar
     if (this.blinkTimer < 0.14) {
@@ -1270,6 +1379,8 @@ export class Character {
         lid.position.add(_v);
       }
     }
+    // Avaturn-avataren tar samma pose som det osynliga skelettet
+    this.retarget?.apply();
   }
 
   get blinkDrop() {

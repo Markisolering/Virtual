@@ -31,7 +31,7 @@ export const PART_NAMES = { overdel: 'överdel', underdel: 'underdel', skor: 'sk
 function regionOf(name) {
   if (/Head|Neck|Hand|Finger|Eye|Jaw|Tongue|Brow|Lip|Ponytail|Mouth|Cheek/.test(name)) return 0;
   if (/Foot|Toe/.test(name)) return 3;
-  if (/Thigh|Calf|Pelvis|^Bip01$/.test(name)) return 2;
+  if (/Thigh|Calf|Pelvis|^Bip01$|UpLeg|Leg$|Hips/.test(name)) return 2;
   return 1;
 }
 
@@ -150,40 +150,52 @@ const FRAGMENT = /* glsl */ `
 // Klädfärger för en person. Materialet kopieras först när något färgas om, så att andra personer
 // med samma modell inte påverkas.
 export class Wardrobe {
-  constructor(model) {
+  // outfitOnly: kläderna är egna nät (Avaturn); då färgas alla klädnät och ingen hud behöver sorteras bort
+  constructor(model, { outfitOnly = false } = {}) {
     this.model = model;
+    this.outfitOnly = outfitOnly;
     this.state = { overdel: null, underdel: null, skor: null };
     this.uniforms = null;
   }
 
   setup() {
     if (this.uniforms) return true;
-    // Kroppen är det nät som har flest hörn på armar och ben (inte huvudet eller ögonfransarna)
-    let body = null;
-    this.model.traverse((o) => {
-      if (o.isSkinnedMesh && o.material?.map && !/opacity|head/i.test(o.material.name) && (!body || o.geometry.attributes.position.count > body.geometry.attributes.position.count)) body = o;
-    });
-    if (!body) return false;
-    prepareGeometry(body);
-    const info = analyse(body);
-    this.uniforms = {
-      clothTint: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
-      clothSkin: { value: info.skin },
-      clothAvg: { value: info.avg },
-    };
-    const mat = body.material.clone();
-    mat.onBeforeCompile = (shader) => {
-      Object.assign(shader.uniforms, this.uniforms);
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute float clothRegion;\nvarying float vClothRegion;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvClothRegion = clothRegion;');
-      shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform vec4 clothTint[3];\nuniform vec4 clothSkin;\nuniform vec3 clothAvg;\nvarying float vClothRegion;')
-        .replace('#include <map_fragment>', `#include <map_fragment>\n${FRAGMENT}`);
-    };
-    mat.customProgramCacheKey = () => 'wardrobe';
-    body.material = mat;
-    this.material = mat;
+    let meshes = [];
+    if (this.outfitOnly) {
+      // Allt som inte är kropp, huvud, hår eller ögon
+      this.model.traverse((o) => o.isSkinnedMesh && o.material?.map && !/body|head|eye|teeth|tongue|hair|beard|lash|brow|glasses|eyewear/i.test(`${o.name} ${o.material.name}`) && meshes.push(o));
+      // Avatarer där kroppen och kläderna är ett enda nät färgas som de inbyggda (huden sorteras bort)
+      if (!meshes.length) this.outfitOnly = false;
+    }
+    if (!this.outfitOnly) {
+      // Kroppen är det nät som har flest hörn på armar och ben (inte huvudet eller ögonfransarna)
+      let body = null;
+      this.model.traverse((o) => {
+        if (o.isSkinnedMesh && o.material?.map && !/opacity|head/i.test(o.material.name) && (!body || o.geometry.attributes.position.count > body.geometry.attributes.position.count)) body = o;
+      });
+      if (body) meshes = [body];
+    }
+    if (!meshes.length) return false;
+    this.uniforms = { clothTint: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] } };
+    for (const mesh of meshes) {
+      prepareGeometry(mesh);
+      const info = analyse(mesh);
+      // Hudigenkänningen stängs av för rena klädnät (en jättestor ljushet matchar aldrig)
+      const skin = this.outfitOnly ? new THREE.Vector4(0, 0, 0, 1e6) : info.skin;
+      const uniforms = { clothTint: this.uniforms.clothTint, clothSkin: { value: skin }, clothAvg: { value: info.avg } };
+      const mat = mesh.material.clone();
+      mat.onBeforeCompile = (shader) => {
+        Object.assign(shader.uniforms, uniforms);
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>\nattribute float clothRegion;\nvarying float vClothRegion;')
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvClothRegion = clothRegion;');
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', '#include <common>\nuniform vec4 clothTint[3];\nuniform vec4 clothSkin;\nuniform vec3 clothAvg;\nvarying float vClothRegion;')
+          .replace('#include <map_fragment>', `#include <map_fragment>\n${FRAGMENT}`);
+      };
+      mat.customProgramCacheKey = () => 'wardrobe';
+      mesh.material = mat;
+    }
     return true;
   }
 

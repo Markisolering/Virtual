@@ -254,9 +254,9 @@ export class PoseEditor {
     const normal = this.camera.getWorldDirection(new THREE.Vector3());
     this.drag = { handle, el, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, start), target: start.clone(), id: e.pointerId, startPose: { ...this.c.editPose }, cast: 0 };
     // Kroppens yta (för att kunna lägga handen på huvudet, axeln osv.)
-    if (!this.bodyReady) {
-      this.c.model.traverse((o) => o.isSkinnedMesh && o.computeBoundingSphere());
-      this.bodyReady = true;
+    if (this.bodyReady !== this.c) {
+      (this.c.visual || this.c.model).traverse((o) => o.isSkinnedMesh && o.computeBoundingSphere());
+      this.bodyReady = this.c;
     }
     this.step = 16;
     el.classList.add('dragging');
@@ -297,7 +297,7 @@ export class PoseEditor {
     const pts = chain.map((bone) => bone.getWorldPosition(new THREE.Vector3()));
     const seg = new THREE.Line3();
     const near = (p) => pts.some((a, i) => i > 0 && seg.set(pts[i - 1], a).closestPointToPoint(p, true, _v).distanceTo(p) < 0.075);
-    const hits = this.raycaster.intersectObject(this.c.model, true).filter((h) => h.object.visible && h.object.isMesh && !near(h.point));
+    const hits = this.raycaster.intersectObject(this.c.visual || this.c.model, true).filter((h) => h.object.visible && h.object.isMesh && !near(h.point));
     const hit = hits[0];
     this.drag.lastHit = hit ? hit.point.clone().addScaledVector(this.raycaster.ray.direction, -0.03) : null;
     return this.drag.lastHit;
