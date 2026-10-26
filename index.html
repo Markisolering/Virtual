@@ -116,7 +116,12 @@
           </label>
           <label class="check"><input type="checkbox" id="set-mic" /> Mikrofonknapp: prata in med rösten</label>
           <label class="check"><input type="checkbox" id="set-autosend" /> Skicka direkt när jag har slutat prata</label>
-          <label class="check"><input type="checkbox" id="set-handsfree" /> Handsfree: lyssna igen automatiskt efter varje svar</label>
+          <label>Mikrofonknappen
+            <select id="set-micmode">
+              <option value="toggle">På/av: lyssnar tills jag trycker igen</option>
+              <option value="once">En mening per tryck</option>
+            </select>
+          </label>
           <label>Röst
             <select id="set-voice"><option value="">Automatisk</option></select>
           </label>
@@ -182,6 +187,7 @@
       </div>
     </div>
 
+    <div id="mic-status" class="mic-status" hidden aria-live="polite"></div>
     <div id="toast"></div>
 
     <div id="update-banner" class="update-banner" hidden>

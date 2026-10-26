@@ -66,6 +66,10 @@ export function buildRoom(scene, quality) {
   const pois = [];
   const lights = [];
   const block = (x1, z1, x2, z2, nav = true) => blockers.push({ x1, z1, x2, z2, nav });
+  // Ytor man kan sitta, ligga eller stå på (bordsskivor, sitsar), och var man ska stå för att lägga sig på dem
+  const surfaces = []; // {x1,z1,x2,z2, top}
+  const beds = []; // {label, x, z, face, edge, length, top, sideways}
+  const surface = (x1, z1, x2, z2, top) => surfaces.push({ x1, z1, x2, z2, top });
 
   // ---------- Material ----------
   const floorTex = TX.woodFloor();
@@ -311,6 +315,9 @@ export function buildRoom(scene, quality) {
     block(0.85, -1.0, 3.15, -0.1);
     seats.push({ x: 1.5, z: -0.62, face: Math.PI, approach: [1.5, -1.42], height: 0.48, label: 'soffan' });
     seats.push({ x: 2.5, z: -0.62, face: Math.PI, approach: [2.5, -1.42], height: 0.48, label: 'soffan' });
+    surface(0.95, -0.98, 3.05, -0.3, 0.48);
+    // Lägga sig i soffan: sätta sig på sitsens kant mitt på och lägga sig längs med soffan
+    beds.push({ label: 'soffan', x: 2.0, z: -1.42, face: Math.PI, edge: 0.44, length: 0.68, top: 0.48, sideways: true });
   }
 
   // Soffbord
@@ -348,6 +355,8 @@ export function buildRoom(scene, quality) {
     g.position.set(2.0, 0, -2.2);
     scene.add(g);
     block(1.4, -2.55, 2.6, -1.85);
+    surface(1.425, -2.51, 2.575, -1.89, 0.445);
+    beds.push({ label: 'soffbordet', x: 2.95, z: -2.2, face: Math.PI / 2, edge: 0.375, length: 1.15, top: 0.445 });
   }
 
   // TV-bänk + TV
@@ -393,10 +402,12 @@ export function buildRoom(scene, quality) {
   armchair(4.2, -2.0, Math.PI / 2, chairFabric);
   block(3.75, -2.45, 4.65, -1.55);
   seats.push({ x: 4.15, z: -2.0, face: -Math.PI / 2, approach: [3.35, -2.0], height: 0.5, label: 'fåtöljen' });
+  surface(3.85, -2.3, 4.5, -1.7, 0.46);
 
   armchair(2.85, 3.45, 0, creamFabric);
   block(2.4, 3.0, 3.3, 3.95);
   seats.push({ x: 2.85, z: 3.4, face: Math.PI, approach: [2.85, 2.55], height: 0.5, label: 'läsfåtöljen' });
+  surface(2.5, 3.05, 3.2, 3.7, 0.46);
 
   // Golvlampor
   const floorLamp = (x, z) => {
@@ -521,6 +532,8 @@ export function buildRoom(scene, quality) {
     g.position.set(-2.6, 0, -1.4);
     scene.add(g);
     block(-3.45, -1.875, -1.75, -0.925);
+    surface(-3.45, -1.875, -1.75, -0.925, 0.765);
+    beds.push({ label: 'matbordet', x: -1.45, z: -1.4, face: Math.PI / 2, edge: 0.3, length: 1.7, top: 0.765 });
 
     const chairMat = new THREE.MeshStandardMaterial({ color: '#2a2a2c', roughness: 0.55 });
     const chair = (x, z, rot) => {
@@ -537,6 +550,7 @@ export function buildRoom(scene, quality) {
       c.rotation.y = rot;
       scene.add(c);
       block(x - 0.22, z - 0.22, x + 0.22, z + 0.22, false);
+      surface(x - 0.22, z - 0.21, x + 0.22, z + 0.21, 0.48);
     };
     for (const cx of [-3.0, -2.2]) {
       chair(cx, -2.12, Math.PI);
@@ -615,6 +629,7 @@ export function buildRoom(scene, quality) {
     lights.push(kl);
     scene.add(g);
     block(x1, 3.35, x2, 4);
+    surface(x1, 3.35, x2, 4, 0.93);
     pois.push({ x: -3.4, z: 2.85, face: 0, label: 'köket' });
     pois.push({ x: -2.3, z: 2.85, face: 0, label: 'köket' });
 
@@ -767,5 +782,52 @@ export function buildRoom(scene, quality) {
   sun.shadow.radius = 4;
   scene.add(sun, sun.target);
 
-  return { blockers, seats, pois, doorPivot, lights };
+  // Möblerna som lådor (x, z, y) som kroppen inte får gå igenom. Bordsskivor och sitsar är skivor,
+  // så att man kan ha benen under ett bord.
+  const solids = [
+    // Soffan: sits, rygg, armstöd
+    [0.85, -1.0, 3.15, -0.32, 0, 0.48],
+    [1.0, -0.32, 3.0, -0.1, 0, 0.92],
+    [0.85, -1.0, 1.03, -0.1, 0, 0.72],
+    [2.97, -1.0, 3.15, -0.1, 0, 0.72],
+    // Soffbord, TV-bänk, skänk, bokhylla
+    [1.425, -2.51, 2.575, -1.89, 0.395, 0.445],
+    [1.0, -4, 3.0, -3.5, 0, 0.55],
+    [0.3, 3.55, 1.7, 4, 0, 0.72],
+    [-1.3, -4, 0.5, -3.55, 0, 2.1],
+    // Fåtöljen (vänd mot -x) och läsfåtöljen (vänd mot -z)
+    [3.8, -2.43, 4.42, -1.57, 0, 0.46],
+    [4.42, -2.43, 4.62, -1.57, 0, 0.96],
+    [3.8, -2.44, 4.62, -2.28, 0, 0.7],
+    [3.8, -1.72, 4.62, -1.56, 0, 0.7],
+    [2.43, 3.05, 3.27, 3.67, 0, 0.46],
+    [2.43, 3.67, 3.27, 3.87, 0, 0.96],
+    [2.41, 3.05, 2.57, 3.85, 0, 0.7],
+    [3.13, 3.05, 3.29, 3.85, 0, 0.7],
+    // Golvlampor (stången), sidobordet, krukväxten
+    [4.51, -2.99, 4.59, -2.91, 0, 1.75],
+    [2.01, 3.66, 2.09, 3.74, 0, 1.75],
+    [3.41, 3.36, 3.89, 3.84, 0.53, 0.57],
+    [3.62, 3.57, 3.68, 3.63, 0, 0.55],
+    [-4.75, -3.75, -4.25, -3.25, 0, 0.5],
+    // Matbordet och stolarna (sits och rygg)
+    [-3.45, -1.875, -1.75, -0.925, 0.715, 0.765],
+    ...[-3.0, -2.2].flatMap((x) => [
+      [x - 0.22, -2.33, x + 0.22, -1.91, 0.44, 0.48],
+      [x - 0.21, -2.34, x + 0.21, -2.3, 0.48, 0.92],
+      [x - 0.22, -0.89, x + 0.22, -0.47, 0.44, 0.48],
+      [x - 0.21, -0.5, x + 0.21, -0.46, 0.48, 0.92],
+    ]),
+    // Köket och kylskåpet
+    [-4.85, 3.35, -1.65, 4, 0, 0.93],
+    [-1.62, 3.3, -0.88, 4, 0, 1.9],
+  ].map(([x1, z1, x2, z2, y1, y2]) => ({ x1, z1, x2, z2, y1, y2 }));
+
+  // Underlagets höjd under en punkt: den högsta ytan som punkten är ovanför (eller nästan), annars golvet
+  const supportAt = (x, z, y) => {
+    let best = 0;
+    for (const s of surfaces) if (s.top > best && s.top <= y + 0.3 && x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2) best = s.top;
+    return best;
+  };
+  return { blockers, seats, pois, doorPivot, lights, surfaces, beds, supportAt, solids };
 }

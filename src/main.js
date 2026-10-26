@@ -13,7 +13,7 @@ import { rateMotion, updateLessons, motionLessons, learnedCount, resetLearning, 
 import { PoseEditor } from './editor.js';
 import { Interactions } from './interact.js';
 import { parseCommand, commandReply } from './commands.js';
-import { PRESETS, findMotion, motionTitle } from './motion.js';
+import { PRESETS, findMotion, motionTitle, setWorld } from './motion.js';
 import { voice } from './voice.js';
 
 const $ = (id) => document.getElementById(id);
@@ -29,7 +29,7 @@ let settings = {
   replyMode: 'both',
   mic: true,
   autoSend: true,
-  handsFree: false,
+  micMode: 'toggle',
   voiceName: '',
   voiceRate: 1,
   ...loadSettings(),
@@ -124,7 +124,18 @@ const input = { joy: new THREE.Vector2(), keys: new Set() };
 const characters = [];
 let nextId = 1;
 const interactions = new Interactions({ camera });
-const simWorld = { nav, seats: world.seats, pois: world.pois, player, characters, interactions };
+const simWorld = { nav, seats: world.seats, pois: world.pois, beds: world.beds, player, characters, interactions };
+// Det som kroppen inte får gå igenom: golv och möbler, väggarna och de andra personerna i närheten
+const _bodyPos = new THREE.Vector3();
+setWorld({
+  support: world.supportAt,
+  solids: world.solids,
+  walls: { minX: ROOM.minX, maxX: ROOM.maxX, minZ: ROOM.minZ, maxZ: ROOM.maxZ, door: { z1: DOOR.z1, z2: DOOR.z2, h: DOOR.height } },
+  bodies: (rig) => {
+    rig.model.getWorldPosition(_bodyPos);
+    return characters.filter((c) => c.rig !== rig && c.root.visible && c.position.distanceTo(_bodyPos) < 2.6).flatMap((c) => c.capsules());
+  },
+});
 
 async function addCharacter(entry) {
   const asset = await library.create(entry);
@@ -567,7 +578,7 @@ function openChat(c) {
   talkBtn.hidden = true;
   focusLabel.classList.remove('show');
   if (!isTouch) activeInput().focus();
-  say(c, greet).then(() => afterReply(c));
+  say(c, greet);
 }
 
 // Personens replik: i chatten eller pratbubblan, uppläst om rösten är på, och med läppsynk
@@ -594,11 +605,6 @@ async function say(c, text, el) {
   }
 }
 
-// Handsfree: lyssna igen när personen har svarat
-function afterReply(c) {
-  if (chatOpen && chatWith === c && settings.handsFree && settings.mic !== false && voice.canListen() && !voice.listening) startListening();
-}
-
 function closeChat() {
   if (!chatOpen) return;
   chatOpen = false;
@@ -606,7 +612,7 @@ function closeChat() {
   talkbar.hidden = true;
   bubbleEl.hidden = true;
   showHeard('');
-  voice.stopListening();
+  setMic(false);
   voice.cancel();
   document.body.classList.remove('chatting');
   $('chat-input').blur();
@@ -702,7 +708,6 @@ async function send(text) {
       toast(`${c.name} följer efter dig. Säg "stanna" för att få ${c.persona.pronoun === 'hon' ? 'henne' : c.persona.pronoun === 'han' ? 'honom' : 'hen'} att sluta.`);
     });
   } else {
-    spoken.then(() => afterReply(c));
   }
 }
 
@@ -734,59 +739,139 @@ $('talk-form').addEventListener('submit', (e) => {
 $('talk-close').addEventListener('click', closeChat);
 
 // ---- Prata in med rösten ----
-function setMicState(on) {
-  for (const b of document.querySelectorAll('.mic-btn')) b.classList.toggle('listening', on);
+// Mikrofonknappen slår inspelningen på och av. När den är på lyssnar spelet mening för mening tills man
+// trycker igen: varje mening skickas, och medan personen svarar pausas lyssnandet så att den inte hör
+// sig själv. En statusrad högst upp visar hela tiden vad mikrofonen gör och vad den har uppfattat.
+const micStatus = $('mic-status');
+const mic = { on: false, gen: 0 };
+let micStatusTimer = 0;
+const MIC_TEXT = {
+  starting: '🎙️ Startar mikrofonen…',
+  listening: '🔴 Lyssnar – prata nu',
+  hearing: '🔴 ',
+  paused: '⏸ Väntar på svaret – lyssnar sedan igen',
+  sent: '✓ Uppfattat: ',
+  silence: '🔴 Hörde inget – prata igen',
+  off: '🎙️ Mikrofonen är av',
+};
+
+function micUI(state, text = '') {
+  const active = mic.on && state !== 'off';
+  for (const b of document.querySelectorAll('.mic-btn')) {
+    b.classList.toggle('listening', active && state !== 'paused');
+    b.classList.toggle('paused', active && state === 'paused');
+    b.setAttribute('aria-pressed', String(mic.on));
+  }
+  micStatus.textContent = `${MIC_TEXT[state] || ''}${text}`;
+  micStatus.className = `mic-status ${state}`;
+  micStatus.hidden = false;
+  clearTimeout(micStatusTimer);
+  if (!mic.on) micStatusTimer = setTimeout(() => (micStatus.hidden = true), state === 'off' ? 1500 : 3000);
 }
+
 function updateMicButtons() {
   const show = settings.mic !== false && voice.canListen();
   for (const b of document.querySelectorAll('.mic-btn')) b.hidden = !show;
 }
-function startListening() {
-  if (voice.listening) {
-    voice.stopListening();
-    return;
-  }
-  if (!voice.canListen()) {
+
+function setMic(on) {
+  if (on === mic.on) return;
+  if (on && !voice.canListen()) {
     toast('Röstinmatning stöds inte i den här webbläsaren.');
     return;
   }
-  voice.cancel(); // tysta personen om hen pratar
-  setMicState(true);
-  // I redigeraren skrivs det man säger in som förklaring
-  const editing = editor.active;
-  const field = editing ? $('pose-note') : activeInput();
-  voice.listen({
-    onPartial: (t) => {
-      field.value = t;
-      if (compactView() && !editing) showHeard(t, true);
-    },
-    onEnd: (t) => {
-      setMicState(false);
-      if (editing) {
-        if (t) field.value = t;
-        return;
-      }
-      if (!t) {
-        showHeard('');
-        return;
-      }
-      if (settings.autoSend !== false) {
-        field.value = '';
-        submitText(t);
-      } else {
-        field.value = t;
-        showHeard('');
-        field.focus();
-      }
-    },
-    onError: (e) => {
-      setMicState(false);
-      showHeard('');
-      toast(/not-allowed|denied|permission/i.test(e) ? 'Appen får inte använda mikrofonen. Tillåt det i telefonens inställningar.' : `Kunde inte lyssna (${e}).`);
-    },
-  });
+  mic.on = on;
+  mic.gen++;
+  try {
+    navigator.vibrate?.(on ? 25 : [15, 50, 15]);
+  } catch {
+    // Vibration stöds inte
+  }
+  if (on) {
+    voice.cancel(); // tysta personen om hen pratar
+    micLoop(mic.gen);
+  } else {
+    // Det som hunnit sägas skickas ändå när inspelningen avslutas
+    voice.stop();
+    micUI('off');
+  }
 }
-for (const b of document.querySelectorAll('.mic-btn')) b.addEventListener('click', startListening);
+
+async function micLoop(gen) {
+  let failures = 0;
+  const current = () => mic.on && mic.gen === gen;
+  while (current()) {
+    // Vänta medan svaret räknas fram eller personen pratar
+    if (busy || voice.speaking) {
+      micUI('paused');
+      await wait(250);
+      continue;
+    }
+    const editing = editor.active;
+    const field = editing ? $('pose-note') : activeInput();
+    micUI('starting');
+    let heard = false;
+    const r = await voice.listenOnce({
+      onSound: () => current() && !heard && micUI('listening'),
+      onPartial: (t) => {
+        if (mic.gen !== gen) return;
+        heard = true;
+        micUI('hearing', t);
+        field.value = t;
+        if (compactView() && !editing) showHeard(t, true);
+      },
+    });
+    const text = r.text;
+    if (!text) {
+      if (compactView()) showHeard('');
+      if (!current()) break;
+      if (r.error && r.error !== 'no-speech') {
+        if (/not-allowed|denied|permission|service-not-allowed/i.test(r.error)) {
+          setMic(false);
+          toast('Appen får inte använda mikrofonen. Tillåt det i telefonens inställningar.');
+          break;
+        }
+        if (++failures >= 3) {
+          setMic(false);
+          toast(`Mikrofonen fungerar inte just nu (${r.error}). Försök igen om en stund.`);
+          break;
+        }
+      }
+      micUI('silence');
+      await wait(400);
+      continue;
+    }
+    failures = 0;
+    const still = current();
+    micUI('sent', text);
+    if (editing) {
+      field.value = text;
+      setMic(false);
+      micUI('sent', text);
+      break;
+    }
+    if (settings.autoSend !== false) {
+      field.value = '';
+      submitText(text);
+    } else {
+      field.value = text;
+      showHeard('');
+      field.focus();
+      setMic(false);
+      micUI('sent', text);
+      break;
+    }
+    if (!still || settings.micMode === 'once') {
+      if (still) setMic(false);
+      micUI('sent', text);
+      break;
+    }
+    // Låt svaret börja innan nästa mening lyssnas på
+    await wait(600);
+  }
+}
+
+for (const b of document.querySelectorAll('.mic-btn')) b.addEventListener('click', () => setMic(!mic.on));
 
 // ---------------- Betyg på rörelser ----------------
 // Ett litet kort med rörelsens namn och 👍/👎: i chattrutan, eller flytande ovanför raden i den kompakta vyn.
@@ -1052,7 +1137,7 @@ function openSettings() {
   $('set-reply').value = settings.replyMode || 'both';
   $('set-mic').checked = settings.mic !== false;
   $('set-autosend').checked = settings.autoSend !== false;
-  $('set-handsfree').checked = !!settings.handsFree;
+  $('set-micmode').value = settings.micMode || 'toggle';
   $('set-rate').value = settings.voiceRate || 1;
   $('rate-val').textContent = `${Number(settings.voiceRate || 1).toFixed(2)}×`;
   $('voice-note').hidden = voice.canListen() && voice.canSpeak();
@@ -1117,7 +1202,7 @@ $('set-save').addEventListener('click', () => {
     replyMode: $('set-reply').value,
     mic: $('set-mic').checked,
     autoSend: $('set-autosend').checked,
-    handsFree: $('set-handsfree').checked,
+    micMode: $('set-micmode').value,
     voiceName: $('set-voice').value,
     voiceRate: Number($('set-rate').value),
   };
