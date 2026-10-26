@@ -1058,3 +1058,34 @@ body.editing .npc-bubble {
   height: 100%;
   border: 0;
 }
+
+/* ---------- Talking head ---------- */
+#next-person {
+  display: none;
+}
+body.headmode #next-person {
+  display: grid;
+  place-items: center;
+  top: calc(64px + env(safe-area-inset-top));
+}
+body.headmode #crosshair,
+body.headmode #joy-base,
+body.headmode #focus-label {
+  display: none !important;
+}
+/* Repliken som undertext längst ner i stället för en bubbla ovanför huvudet */
+body.headmode #speech-bubble {
+  left: 50%;
+  top: auto;
+  bottom: calc(86px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) !important;
+  max-width: min(92vw, 640px);
+  background: rgba(10, 9, 8, 0.72);
+  color: #fff;
+  text-align: center;
+  font-size: 16px;
+  box-shadow: none;
+}
+body.headmode #speech-bubble::after {
+  display: none;
+}

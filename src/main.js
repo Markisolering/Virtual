@@ -15,7 +15,9 @@ import { Interactions } from './interact.js';
 import { listAvatars, saveAvatar, updateAvatar, deleteAvatar, isGlb, createWithAvaturn } from './avaturn.js';
 import { parseCommand, commandReply } from './commands.js';
 import { PRESETS, findMotion, motionTitle, setWorld } from './motion.js';
-import { voice } from './voice.js';
+import { voice, speakable } from './voice.js';
+import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
@@ -37,8 +39,11 @@ let settings = {
 };
 library.filter = settings.show;
 library.avaturn = settings.people === 'avaturn';
-// Närbild: en eller två personer åt gången, detaljerade modeller med ansiktsuttryck och högsta grafikkvalitet
-const closeup = settings.mode === 'closeup';
+// Närbild: en eller två personer åt gången, detaljerade modeller med ansiktsuttryck och högsta grafikkvalitet.
+// Talking head: en person, kameran bara på huvudet, porträttljus och suddig bakgrund.
+const headMode = settings.mode === 'head';
+const closeup = settings.mode === 'closeup' || headMode;
+if (headMode) document.body.classList.add('headmode');
 if (closeup) {
   library.dir = 'avatars-hq';
   library.initialCount = 1;
@@ -68,7 +73,8 @@ function fitFov() {
   const aspect = innerWidth / innerHeight;
   const hfov = THREE.MathUtils.degToRad(aspect < 1 ? 78 : 96);
   const vfov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(hfov / 2) / aspect));
-  camera.fov = Math.min(95, Math.max(58, vfov));
+  // Talking head: smal bildvinkel som ett porträttobjektiv (bredare på liggande skärm)
+  camera.fov = headMode ? (aspect < 1 ? 30 : 24) : Math.min(95, Math.max(58, vfov));
   camera.aspect = aspect;
   camera.updateProjectionMatrix();
 }
@@ -100,9 +106,31 @@ function setupPipeline() {
     ao.blendIntensity = 0.85;
     composer.addPass(ao);
   }
+  // Talking head: kort skärpedjup som i ett porträtt, bakgrunden blir suddig
+  if (headMode) {
+    bokeh = new BokehPass(scene, camera, { focus: 0.8, aperture: 0.012, maxblur: 0.01 });
+    composer.addPass(bokeh);
+  } else bokeh = null;
   composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.18, 0.35, 2.2));
   composer.addPass(new OutputPass());
+  // Svag vinjett och filmkorn, som en riktig kamera (döljer också den "datorrena" ytan)
+  if (headMode) composer.addPass((filmPass = new ShaderPass(FILM)));
 }
+let bokeh = null;
+let filmPass = null;
+const FILM = {
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float time; varying vec2 vUv;
+    float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233)) + time) * 43758.5453); }
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      float d = distance(vUv, vec2(0.5));
+      c.rgb *= mix(1.0, 0.72, smoothstep(0.35, 0.85, d));
+      c.rgb += (hash(vUv * 1000.0) - 0.5) * 0.025;
+      gl_FragColor = c;
+    }`,
+};
 setupPipeline();
 
 addEventListener('resize', () => {
@@ -196,8 +224,8 @@ async function spawnAtDoor() {
 }
 
 let spawnTimer = 6;
-const randomTarget = () => (closeup ? 1 + (Math.random() < 0.5 ? 1 : 0) : 2 + Math.floor(Math.random() * 4));
-let targetCount = closeup ? 2 : 4;
+const randomTarget = () => (headMode ? 1 : closeup ? 1 + (Math.random() < 0.5 ? 1 : 0) : 2 + Math.floor(Math.random() * 4));
+let targetCount = headMode ? 1 : closeup ? 2 : 4;
 
 // ---------------- Porträttljus (närbild) ----------------
 // Ett mjukt strålkastarljus snett framifrån som följer den man tittar på eller pratar med,
@@ -235,6 +263,168 @@ function updateKeyLight(dt) {
   keyLight.position.lerp(keyPos, Math.min(1, dt * 4));
   keyLight.target.position.lerp(head, Math.min(1, dt * 6));
 }
+
+// ---------------- Talking head ----------------
+// En person står framför bokhyllan, kameran ramar in huvudet och axlarna med ett "teleobjektiv",
+// och tre ljus (huvudljus, fylljus och kantljus) ger ett porträtt. Dra för att vrida kameran lite,
+// nyp eller scrolla för att zooma.
+const STAGE = { x: 0.3, z: 0.9, face: 0 };
+const headCam = { yaw: 0, pitch: 0, dist: 1.05, target: new THREE.Vector3(), ready: false };
+const fillLight = new THREE.PointLight('#cfdcff', 0, 4, 2);
+const rimLight = new THREE.SpotLight('#ffe2c4', 0, 5, 0.6, 0.8, 2);
+scene.add(fillLight, rimLight, rimLight.target);
+
+// Syns ansiktet? En stråle framifrån mot ögonen ska träffa ansiktet först, inte t.ex. en burka.
+function faceVisible(c) {
+  c.root.updateMatrixWorld(true);
+  // Utan ögon (t.ex. en burka utan ansikte under) finns det inget ansikte att visa
+  const eyes = c.bones.eyes;
+  if (!eyes.length) return false;
+  c.visual.traverse((o) => o.isSkinnedMesh && o.computeBoundingSphere());
+  const target = new THREE.Vector3();
+  for (const e of eyes) target.add(e.getWorldPosition(new THREE.Vector3()));
+  target.divideScalar(eyes.length);
+  const fwd = new THREE.Vector3(Math.sin(c.heading), 0, Math.cos(c.heading));
+  const from = target.clone().addScaledVector(fwd, 0.8);
+  const ray = new THREE.Raycaster(from, fwd.clone().negate(), 0, 1.2);
+  const hit = ray.intersectObject(c.visual, true).find((h) => h.object.visible && h.object.isMesh);
+  return !!hit && c.faceMeshes.includes(hit.object);
+}
+
+async function setupStage(c, tries = 0) {
+  if (!c) return;
+  // Personer med täckt ansikte passar inte här; byt till någon annan
+  if (c.hasFace === false || (!faceVisible(c) && tries < 6)) {
+    library.skip.add(c.avatarId);
+    const next = await addCharacter(library.pickEntry()).catch(() => null);
+    if (next) {
+      scene.remove(c.root);
+      c.dispose();
+      characters.splice(characters.indexOf(c), 1);
+      return setupStage(next, tries + 1);
+    }
+  }
+  for (const s of world.seats) if (s.occupant === c) s.occupant = null;
+  c.seat = null;
+  c.stopMotion();
+  c.position.set(STAGE.x, 0, STAGE.z);
+  c.heading = STAGE.face;
+  c.desiredHeading = STAGE.face;
+  c.root.rotation.y = STAGE.face;
+  c.state = 'idle';
+  c.path = null;
+  c.sitAmount = 0;
+  c.stay = 1e9;
+  c.timer = 1e9;
+  c.holdUntil = 1e9;
+  c.following = false;
+  improveSkin(c);
+  headCam.ready = false;
+  fitFov();
+  // Spelaren står där kameran är, så att personen får ögonkontakt
+  player.position.set(STAGE.x, 0, STAGE.z + 1);
+  openChat(c);
+}
+
+// Hudens material: lite sammetsglans (sheen) i kanterna och mjukare reflexer, som riktig hud
+function improveSkin(c) {
+  c.visual.traverse((o) => {
+    if (!o.isMesh || !o.material || o.material.isMeshPhysicalMaterial || /opacity|lash|hair/i.test(o.material.name)) return;
+    const m = o.material;
+    const phys = new THREE.MeshPhysicalMaterial();
+    THREE.MeshStandardMaterial.prototype.copy.call(phys, m);
+    phys.sheen = 0.2;
+    phys.sheenRoughness = 0.55;
+    phys.sheenColor = new THREE.Color('#ffb59c');
+    phys.specularIntensity = 0.55;
+    phys.roughness = Math.max(0.45, m.roughness);
+    phys.envMapIntensity = 0.7;
+    o.material = phys;
+  });
+}
+
+function updateHeadCamera(dt) {
+  const c = characters.find((x) => x.state !== 'leaving') || null;
+  if (!c) return;
+  const head = c.headWorld();
+  // Huvudbenet sitter vid hakan; sikta en bit ovanför så att hela huvudet och axlarna syns
+  const aim = head.clone().add(new THREE.Vector3(0, 0.06, 0));
+  if (!headCam.ready) {
+    headCam.target.copy(aim);
+    headCam.ready = true;
+  }
+  // Följ huvudet mjukt, som en kameraman (huvudets små rörelser syns i bilden)
+  headCam.target.lerp(aim, Math.min(1, dt * 2.5));
+  const yaw = c.heading + headCam.yaw;
+  const pitch = 0.04 + headCam.pitch;
+  const t = performance.now() / 1000;
+  camera.position.set(
+    headCam.target.x + Math.sin(yaw) * Math.cos(pitch) * headCam.dist + Math.sin(t * 0.31) * 0.004,
+    headCam.target.y + Math.sin(pitch) * headCam.dist + Math.sin(t * 0.43) * 0.003,
+    headCam.target.z + Math.cos(yaw) * Math.cos(pitch) * headCam.dist,
+  );
+  camera.lookAt(headCam.target.x, headCam.target.y - 0.02, headCam.target.z);
+  player.headPos.copy(camera.position);
+  // Porträttljus som följer huvudet
+  const fwd = new THREE.Vector3(Math.sin(c.heading), 0, Math.cos(c.heading));
+  const side = new THREE.Vector3(fwd.z, 0, -fwd.x);
+  fillLight.intensity = 0.9;
+  fillLight.position.copy(head).addScaledVector(fwd, 0.9).addScaledVector(side, -0.8).add(new THREE.Vector3(0, -0.1, 0));
+  rimLight.intensity = 9;
+  rimLight.position.copy(head).addScaledVector(fwd, -0.9).addScaledVector(side, 0.6).add(new THREE.Vector3(0, 0.5, 0));
+  rimLight.target.position.copy(head);
+  if (bokeh) bokeh.uniforms.focus.value = camera.position.distanceTo(head);
+  if (filmPass) filmPass.uniforms.time.value = (t % 100) * 0.37;
+}
+
+// Dra för att vrida kameran runt huvudet, nyp eller scrolla för att zooma
+{
+  const pts = new Map();
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!headMode || !started || editor.active) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const p = pts.get(e.pointerId);
+    if (!p) return;
+    if (pts.size === 1) {
+      headCam.yaw = Math.max(-0.7, Math.min(0.7, headCam.yaw - (e.clientX - p.x) * 0.004));
+      headCam.pitch = Math.max(-0.25, Math.min(0.35, headCam.pitch + (e.clientY - p.y) * 0.003));
+    } else if (pts.size === 2) {
+      const [a, b] = [...pts.values()];
+      const before = Math.hypot(a.x - b.x, a.y - b.y);
+      p.x = e.clientX;
+      p.y = e.clientY;
+      const after = Math.hypot(a.x - b.x, a.y - b.y);
+      headCam.dist = Math.max(0.45, Math.min(1.6, headCam.dist * (before / Math.max(1, after))));
+      return;
+    }
+    p.x = e.clientX;
+    p.y = e.clientY;
+  });
+  const up = (e) => pts.delete(e.pointerId);
+  canvas.addEventListener('pointerup', up);
+  canvas.addEventListener('pointercancel', up);
+  canvas.addEventListener('wheel', (e) => headMode && (headCam.dist = Math.max(0.45, Math.min(1.6, headCam.dist * (e.deltaY > 0 ? 1.08 : 0.92)))), { passive: true });
+}
+
+// Byt till en ny person
+$('next-person').addEventListener('click', async () => {
+  const old = characters[0];
+  if (chatOpen) closeChat();
+  try {
+    const c = await addCharacter(library.pickEntry());
+    if (old) {
+      scene.remove(old.root);
+      old.dispose();
+      characters.splice(characters.indexOf(old), 1);
+    }
+    await setupStage(c);
+  } catch (err) {
+    console.error(err);
+    toast('Kunde inte ladda en ny person.');
+  }
+});
 
 // ---------------- Dörren ----------------
 let doorAngle = 0;
@@ -592,16 +782,20 @@ async function say(c, text, el) {
   if (useVoice() && chatWith === c) {
     // Ljusare röst för kvinnor och mörkare för män, med lite variation mellan personer
     const pitch = (c.gender === 'f' ? 1.12 : 0.88) * (0.95 + (c.id % 5) * 0.025);
+    const rate = settings.voiceRate || 1;
+    const spoken = speakable(text);
     const talk = () => {
-      c.speakText(text);
+      c.speakText(spoken, rate);
       c.speaking = 30; // munnen rör sig tills rösten är klar
     };
     talk();
-    await voice.speak(text, { rate: settings.voiceRate || 1, pitch, voiceId: settings.voiceName || '', onStart: talk });
+    // Läppsynken följer rösten ord för ord
+    await voice.speak(text, { rate, pitch, voiceId: settings.voiceName || '', onStart: talk, onWord: (i) => c.faceAnim.onWord(i) });
+    c.faceAnim.stop();
     c.speaking = 0;
     releaseBubble(2.5);
   } else {
-    const d = c.speakText(text);
+    const d = c.speakText(speakable(text));
     releaseBubble(Math.max(4, d + 2.5));
     await wait(d * 1000);
   }
@@ -639,6 +833,9 @@ async function send(text) {
   $('talk-input').value = '';
   const bubble = addMsg('', 'them typing');
   setBubble('', true);
+  // Personen tänker (tittar bort) tills svaret börjar komma
+  c.listening = false;
+  c.thinking = true;
   const execute = (cmd) => c.command(cmd, simWorld);
   let result = null;
   if (settings.apiKey) {
@@ -649,6 +846,7 @@ async function send(text) {
         text,
         simWorld,
         (partial) => {
+          c.thinking = false;
           bubble.classList.remove('typing');
           bubble.textContent = partial;
           setBubble(partial);
@@ -678,6 +876,7 @@ async function send(text) {
       if (result.emotion) c.setExpression(result.emotion, 4);
     }
   }
+  c.thinking = false;
   bubble.classList.remove('typing');
   const outcomes = result.outcomes || [];
   let spoken = Promise.resolve();
@@ -739,6 +938,17 @@ $('talk-form').addEventListener('submit', (e) => {
   submitText($('talk-input').value);
 });
 $('talk-close').addEventListener('click', closeChat);
+
+// Personen lyssnar (nickar ibland) medan spelaren pratar eller skriver
+let listenTimer = 0;
+function markListening() {
+  const c = chatWith;
+  if (!c) return;
+  c.listening = true;
+  clearTimeout(listenTimer);
+  listenTimer = setTimeout(() => (c.listening = false), 1800);
+}
+for (const id of ['talk-input', 'chat-input']) $(id).addEventListener('input', markListening);
 
 // ---- Prata in med rösten ----
 // Mikrofonknappen slår inspelningen på och av. När den är på lyssnar spelet mening för mening tills man
@@ -818,6 +1028,7 @@ async function micLoop(gen) {
       onPartial: (t) => {
         if (mic.gen !== gen) return;
         heard = true;
+        markListening();
         micUI('hearing', t);
         field.value = t;
         if (compactView() && !editing) showHeard(t, true);
@@ -1121,6 +1332,7 @@ startBtn.addEventListener('click', async () => {
   $('start').hidden = true;
   $('hud').hidden = false;
   started = true;
+  if (headMode) setupStage(characters[0]);
   if (isTouch && !androidApp && document.documentElement.requestFullscreen) {
     try {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
@@ -1462,6 +1674,7 @@ function frame(now) {
   }
 
   if (editor.active) editor.update(dt);
+  else if (headMode && started) updateHeadCamera(dt);
   else {
     updatePlayer(dt);
     updateZoom(dt);
@@ -1498,4 +1711,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Exponera för felsökning i konsolen
-window.__game = { editor, scene, characters, player, camera, sim: simWorld, spawnAtDoor, openChat, send, library, motions: PRESETS };
+window.__game = { faceVisible, addCharacter, editor, scene, characters, player, camera, sim: simWorld, spawnAtDoor, openChat, send, library, motions: PRESETS };

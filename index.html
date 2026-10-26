@@ -23,6 +23,7 @@
       <div id="joy-base"><div id="joy-knob"></div></div>
       <button id="talk-btn" class="round" hidden aria-label="Prata">💬</button>
       <button id="settings-btn" class="round small" aria-label="Inställningar">⚙︎</button>
+      <button id="next-person" class="round small" aria-label="Ny person" title="Ny person">🔄</button>
     </div>
 
     <div id="chat" hidden>
@@ -66,6 +67,7 @@
         <div id="mode-pick" class="segmented" role="group" aria-label="Läge">
           <button type="button" data-mode="room"><b>Rummet</b><span>Flera personer kommer och går</span></button>
           <button type="button" data-mode="closeup"><b>Närbild</b><span>1–2 personer, mer detaljer och ansiktsuttryck</span></button>
+          <button type="button" data-mode="head"><b>Talking head</b><span>Bara huvudet som pratar, som i ett videosamtal</span></button>
         </div>
         <button id="start-btn" class="primary">Gå in</button>
         <button id="install-btn" class="secondary" hidden>Installera som app</button>
@@ -90,6 +92,7 @@
           <select id="set-mode">
             <option value="room">Rummet: flera personer</option>
             <option value="closeup">Närbild: 1–2 personer i högre detalj</option>
+            <option value="head">Talking head: bara huvudet, som i ett videosamtal</option>
           </select>
         </label>
         <label>Personer i rummet

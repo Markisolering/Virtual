@@ -159,6 +159,15 @@ Avatarerna rör sig precis som de inbyggda personerna, med samma animationer, eg
 - Det osynliga skelettets delar (rygg, armar, ben) görs lika långa som avatarens, så att händer och huvud hamnar på samma ställe.
 - Ansiktsuttryck, blinkningar och läppsynk används om avataren har ARKit-uttryck (som Avaturn).
 
+## Talking head
+
+Välj **Talking head** på startskärmen eller under ⚙︎ Inställningar → *Läge*. En person står framför kameran, som bara visar huvudet och axlarna, som i ett videosamtal. Repliken visas som undertext. Dra för att vrida kameran lite, nyp eller scrolla för att zooma, och tryck på 🔄 för att träffa en ny person.
+
+- **Bild:** smal bildvinkel som ett porträttobjektiv, porträttljus (huvudljus, fylljus och kantljus), kort skärpedjup så att bakgrunden blir suddig (BokehPass), hudmaterial med sammetsglans, och en svag vinjett och filmkorn. Kameran följer huvudet mjukt som en kameraman.
+- **Läppsynk som följer rösten** (`src/face.js`): texten blir munformer (15 visem för svenska), och talsyntesen säger till när varje ord börjar (`onboundary` i webbläsaren, `onRangeStart` i Android-appen), så att munnen hoppar till rätt ord. Nästa munform tonas in innan den förra är klar, som när man pratar på riktigt, och käken följer med.
+- **Ett levande ansikte:** huvudet rör sig hela tiden lite, mer när personen pratar. Betonade ord ger en nick och höjda ögonbryn, en fråga ger en lutning på huvudet och ord som "nej" och "inte" en liten huvudskakning. Blinkningarna är snabba och kommer oftare i pauser. Blicken byter fixeringspunkt med små ryck och tittar bort när personen tänker på ett svar. Medan du pratar eller skriver lyssnar personen och nickar ibland.
+- Personer med täckt ansikte väljs bort automatiskt i det här läget.
+
 ## Närbildsläge
 
 Välj **Närbild** på startskärmen (eller under ⚙︎ Inställningar → Läge). Då är det bara en eller två personer i rummet åt gången, och de visas i högre detalj:
@@ -207,5 +216,6 @@ src/clothes.js      Byta kläder (färga om överdel, underdel och skor)
 src/interact.js     Personer som gör saker med varandra
 src/avaturn.js      Egna avatarer: Avaturns redigerare, uppladdning och lagring i IndexedDB
 src/retarget.js     För över posen från Rocketbox-skelettet till en avatar med standardskelett
+src/face.js         Ansiktet som pratar: läppsynk, huvudrörelser, ögonbryn, blinkningar och blick
 public/draco/       Draco-avkodare för komprimerade avatarer
 ```
