@@ -782,11 +782,52 @@ export function buildRoom(scene, quality) {
   sun.shadow.radius = 4;
   scene.add(sun, sun.target);
 
+  // Möblerna som lådor (x, z, y) som kroppen inte får gå igenom. Bordsskivor och sitsar är skivor,
+  // så att man kan ha benen under ett bord.
+  const solids = [
+    // Soffan: sits, rygg, armstöd
+    [0.85, -1.0, 3.15, -0.32, 0, 0.48],
+    [1.0, -0.32, 3.0, -0.1, 0, 0.92],
+    [0.85, -1.0, 1.03, -0.1, 0, 0.72],
+    [2.97, -1.0, 3.15, -0.1, 0, 0.72],
+    // Soffbord, TV-bänk, skänk, bokhylla
+    [1.425, -2.51, 2.575, -1.89, 0.395, 0.445],
+    [1.0, -4, 3.0, -3.5, 0, 0.55],
+    [0.3, 3.55, 1.7, 4, 0, 0.72],
+    [-1.3, -4, 0.5, -3.55, 0, 2.1],
+    // Fåtöljen (vänd mot -x) och läsfåtöljen (vänd mot -z)
+    [3.8, -2.43, 4.42, -1.57, 0, 0.46],
+    [4.42, -2.43, 4.62, -1.57, 0, 0.96],
+    [3.8, -2.44, 4.62, -2.28, 0, 0.7],
+    [3.8, -1.72, 4.62, -1.56, 0, 0.7],
+    [2.43, 3.05, 3.27, 3.67, 0, 0.46],
+    [2.43, 3.67, 3.27, 3.87, 0, 0.96],
+    [2.41, 3.05, 2.57, 3.85, 0, 0.7],
+    [3.13, 3.05, 3.29, 3.85, 0, 0.7],
+    // Golvlampor (stången), sidobordet, krukväxten
+    [4.51, -2.99, 4.59, -2.91, 0, 1.75],
+    [2.01, 3.66, 2.09, 3.74, 0, 1.75],
+    [3.41, 3.36, 3.89, 3.84, 0.53, 0.57],
+    [3.62, 3.57, 3.68, 3.63, 0, 0.55],
+    [-4.75, -3.75, -4.25, -3.25, 0, 0.5],
+    // Matbordet och stolarna (sits och rygg)
+    [-3.45, -1.875, -1.75, -0.925, 0.715, 0.765],
+    ...[-3.0, -2.2].flatMap((x) => [
+      [x - 0.22, -2.33, x + 0.22, -1.91, 0.44, 0.48],
+      [x - 0.21, -2.34, x + 0.21, -2.3, 0.48, 0.92],
+      [x - 0.22, -0.89, x + 0.22, -0.47, 0.44, 0.48],
+      [x - 0.21, -0.5, x + 0.21, -0.46, 0.48, 0.92],
+    ]),
+    // Köket och kylskåpet
+    [-4.85, 3.35, -1.65, 4, 0, 0.93],
+    [-1.62, 3.3, -0.88, 4, 0, 1.9],
+  ].map(([x1, z1, x2, z2, y1, y2]) => ({ x1, z1, x2, z2, y1, y2 }));
+
   // Underlagets höjd under en punkt: den högsta ytan som punkten är ovanför (eller nästan), annars golvet
   const supportAt = (x, z, y) => {
     let best = 0;
     for (const s of surfaces) if (s.top > best && s.top <= y + 0.3 && x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2) best = s.top;
     return best;
   };
-  return { blockers, seats, pois, doorPivot, lights, surfaces, beds, supportAt };
+  return { blockers, seats, pois, doorPivot, lights, surfaces, beds, supportAt, solids };
 }

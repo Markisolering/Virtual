@@ -30,43 +30,87 @@ export const voice = {
   },
 
   // ---------- Lyssna ----------
+  // Varje inspelning har ett eget nummer, så att sena händelser från en gammal inspelning (som
+  // telefonen ibland skickar efter att man har tryckt stopp) inte kan störa nästa.
   listening: false,
+  _session: 0,
   _rec: null,
-  _handles: [],
+  _stop: null,
+  _permission: false,
 
-  // onPartial(text) under tiden man pratar, onEnd(slutlig text eller '') när man har slutat
-  async listen({ onPartial, onEnd, onError }) {
-    if (this.listening) return;
+  // Lyssnar på en mening. onPartial(text) under tiden, onSound() när ljud/tal uppfattas.
+  // Löftet ger { text, error } när meningen är slut, när stop() anropas eller om något hänger sig.
+  listenOnce({ onPartial, onSound } = {}) {
+    if (this.listening) this.abort();
+    const id = ++this._session;
     this.listening = true;
     let last = '';
+    let error = null;
+    let done;
+    const result = new Promise((resolve) => (done = resolve));
+    const timers = [];
     const finish = () => {
-      if (!this.listening) return;
+      if (id !== this._session || !this.listening) return;
       this.listening = false;
-      onEnd?.(last.trim());
+      this._stop = null;
+      timers.forEach(clearTimeout);
+      if (native) NativeSTT.removeAllListeners().catch(() => {});
+      done({ text: last.trim(), error });
     };
-    if (native) {
-      try {
-        const perm = await NativeSTT.requestPermissions();
-        if (perm.speechRecognition !== 'granted') throw new Error('not-allowed');
-        await NativeSTT.removeAllListeners();
-        this._handles = [
-          await NativeSTT.addListener('partialResults', (d) => {
-            last = d.matches?.[0] || last;
-            onPartial?.(last);
-          }),
-          await NativeSTT.addListener('listeningState', (d) => d.status === 'stopped' && finish()),
-        ];
-        await NativeSTT.start({ language: LANG, maxResults: 1, partialResults: true, popup: false });
-      } catch (err) {
-        this.listening = false;
-        onError?.(String(err?.message || err));
+    const partial = (t) => {
+      if (id !== this._session || !t) return;
+      last = t;
+      onPartial?.(t);
+    };
+    // Säkerhetsnät: en mening tar aldrig mer än 25 s, och efter stopp väntar vi högst 1,5 s på slutet
+    timers.push(setTimeout(() => this.stop(), 25000));
+    this._stop = () => {
+      timers.push(setTimeout(finish, 1500));
+      if (native) NativeSTT.stop().catch(finish);
+      else {
+        try {
+          this._rec?.stop();
+        } catch {
+          finish();
+        }
       }
-      return;
+    };
+    this._finish = finish;
+
+    if (native) {
+      (async () => {
+        try {
+          if (!this._permission) {
+            const perm = await NativeSTT.requestPermissions();
+            if (perm.speechRecognition !== 'granted') throw new Error('not-allowed');
+            this._permission = true;
+          }
+          if (id !== this._session) return;
+          await NativeSTT.removeAllListeners();
+          await NativeSTT.addListener('partialResults', (d) => {
+            partial(d.matches?.[0]);
+            onSound?.();
+          });
+          await NativeSTT.addListener('listeningState', (d) => {
+            if (id !== this._session) return;
+            if (d.status === 'started') onSound?.('start');
+            if (d.status === 'stopped') setTimeout(finish, 250); // sista resultatet kan komma strax efter
+          });
+          // Kommer inget alls inom 12 s ger vi upp
+          timers.push(setTimeout(() => !last && this.listening && id === this._session && ((error = 'timeout'), finish()), 12000));
+          const res = await NativeSTT.start({ language: LANG, maxResults: 1, partialResults: true, popup: false });
+          if (res?.matches?.[0]) partial(res.matches[0]);
+        } catch (err) {
+          error = String(err?.message || err);
+          finish();
+        }
+      })();
+      return result;
     }
     if (!WebSTT) {
-      this.listening = false;
-      onError?.('unsupported');
-      return;
+      error = 'unsupported';
+      finish();
+      return result;
     }
     const rec = new WebSTT();
     this._rec = rec;
@@ -74,28 +118,55 @@ export const voice = {
     rec.interimResults = true;
     rec.continuous = false;
     rec.maxAlternatives = 1;
+    let started = false;
+    rec.onstart = () => {
+      started = true;
+      if (id === this._session) onSound?.('start');
+    };
+    rec.onspeechstart = () => id === this._session && onSound?.();
     rec.onresult = (e) => {
-      last = Array.from(e.results)
-        .map((r) => r[0].transcript)
-        .join(' ');
-      onPartial?.(last);
+      partial(
+        Array.from(e.results)
+          .map((r) => r[0].transcript)
+          .join(' '),
+      );
     };
     rec.onerror = (e) => {
-      if (e.error !== 'no-speech' && e.error !== 'aborted') onError?.(e.error);
+      if (id !== this._session) return;
+      if (e.error !== 'aborted') error = e.error;
     };
     rec.onend = finish;
+    timers.push(setTimeout(() => !started && id === this._session && ((error = 'timeout'), this.abort()), 6000));
     try {
       rec.start();
     } catch (err) {
-      this.listening = false;
-      onError?.(String(err?.message || err));
+      error = String(err?.message || err);
+      finish();
     }
+    return result;
+  },
+
+  // Sluta lyssna; det som hunnit sägas kommer med i resultatet
+  stop() {
+    if (this.listening) this._stop?.();
+  },
+
+  // Avbryt direkt utan att vänta på resultatet
+  abort() {
+    if (!this.listening) return;
+    if (native) NativeSTT.stop().catch(() => {});
+    else {
+      try {
+        this._rec?.abort();
+      } catch {
+        // Redan stoppad
+      }
+    }
+    this._finish?.();
   },
 
   stopListening() {
-    if (!this.listening) return;
-    if (native) NativeSTT.stop().catch(() => {});
-    else this._rec?.stop();
+    this.stop();
   },
 
   // ---------- Tala ----------
@@ -126,10 +197,21 @@ export const voice = {
   },
 
   // Läser upp texten. onStart anropas när rösten börjar; löftet uppfylls när den har slutat.
+  speaking: false,
+
   async speak(text, { rate = 1, pitch = 1, voiceId = '', onStart } = {}) {
     const words = speakable(text);
     if (!words) return;
     this.cancel();
+    this.speaking = true;
+    try {
+      await this._speak(words, { rate, pitch, voiceId, onStart });
+    } finally {
+      this.speaking = false;
+    }
+  },
+
+  async _speak(words, { rate, pitch, voiceId, onStart }) {
     if (native) {
       onStart?.();
       const opts = { text: words, lang: LANG, rate, pitch, volume: 1, category: 'playback' };

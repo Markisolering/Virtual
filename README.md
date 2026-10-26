@@ -85,11 +85,12 @@ AI:n är inte begränsad till de inspelade animationerna. Med `hela_kroppen` sty
 
 ### Naturliga rörelser
 
-- **Många leder:** utöver huvud, överkropp, armar, armbågar, handleder, ben, knän, axlar och fotleder finns höften (`hoft_framat/vrid/luta`), bröstkorgen (`brost_framat/vrid/luta`), skulderbladen (`axel_framat`), underarmsvridning (`underarm_vrid`), handleden åt sidan (`handled_sida`), benvridning (`ben_vrid`), fotleden åt sidan (`fot_sida`), tårna (`tar`), fingrarna (`fingrar`) och tummen (`tumme`).
+- **Många leder:** utöver huvud, överkropp, armar, armbågar, handleder, ben, knän, axlar och fotleder finns höften (`hoft_framat/vrid/luta`), ländryggen (`landrygg_*`), bröstkorgen (`brost_*`), nacken (`nacke_*`), käken (`kake`), ögonen (`ogon_vrid/nick`), skulderbladen (`axel_framat`), underarmsvridning (`underarm_vrid`), handleden åt sidan (`handled_sida`), varje finger för sig (`pekfinger`, `langfinger`, `ringfinger`, `lillfinger`, `tumme`, `tumme_in`), att sprida fingrarna (`fingrar_isar`), benvridning (`ben_vrid`), fotleden åt sidan (`fot_sida`) och tårna (`tar`).
 - **Mjuka kurvor:** en kubisk kurva går genom nyckelbilderna, så farten ändras jämnt i stället för att stanna i varje bild, och handformerna glider över i varandra.
 - **Fjädrande leder:** varje led följer rörelsen som en fjäder. Kroppen accelererar och bromsar mjukt, och huvud, händer och fingrar släpar lite efter, som hos en människa.
 - **Liv i poser:** den som håller en pose andas, flyttar vikten mellan benen och rör huvudet lite.
-- **Kontakt med golv och möbler:** ingen del av kroppen går igenom golvet, bord, stolar eller soffan. Den som sitter, ligger, står på knä eller på händerna vilar mot underlaget. Med `luft` lämnar kroppen marken (hopp och voltor).
+- **Kontakt med golv och möbler:** den som sitter, ligger, står på knä eller på händerna vilar mot underlaget. Med `luft` lämnar kroppen marken (hopp och voltor).
+- **Inget går igenom något:** möblerna och väggarna finns som lådor och de andra personerna som kapslar. Går kroppen in i något knuffas den ut åt det håll den kom ifrån, och armar och ben vrids ut i sina leder, så att en hand som trycks mot bordet stannar på bordsskivan och den som rullar mot soffan stannar mot den.
 - **Förflyttning:** slutar en rörelse på ett annat ställe (kullerbytta, hjulning) står personen kvar där efteråt.
 - **Resa sig:** "res dig" från golvet eller en möbel spelar en riktig rörelse: sätta sig upp, gå upp på huk och ställa sig.
 
@@ -129,12 +130,18 @@ Under ⚙︎ Inställningar → **Samtal** väljer du hur samtalen ska fungera:
 
 - **Samtalsvy:** *Kompakt* (standard) visar personens svar i en pratbubbla ovanför huvudet och bara en smal rad längst ner med textfält, mikrofon och skicka. *Chattruta* visar hela samtalet som förut.
 - **Personens svar:** text, röst eller båda. Rösten är svensk och lite ljusare eller mörkare beroende på person, och munnen rör sig så länge rösten talar.
-- **Mikrofonknapp:** tryck på 🎤 och prata. Det du säger skickas direkt när du har slutat prata (kan stängas av), och med **Handsfree** börjar appen lyssna igen efter varje svar, så att man kan prata fritt fram och tillbaka.
+- **Mikrofonknapp:** tryck på 🎤 för att slå på inspelningen och prata fritt fram och tillbaka; tryck igen för att stänga av (se *Mikrofonen* ovan). Det du säger skickas direkt när du har slutat prata (kan stängas av).
 - **Röst och taltempo:** välj bland telefonens svenska röster och testa dem.
 
 I webbläsaren används webbläsarens inbyggda taligenkänning och talsyntes (`src/voice.js`). Android-appens webbvy saknar dem, så där används telefonens egna via pluginen `@capacitor-community/speech-recognition` och `@capacitor-community/text-to-speech`. Första gången frågar appen om lov att använda mikrofonen.
 
 Betygskortet för rörelser visas i den kompakta vyn som en liten ruta ovanför raden, med rörelsens namn och 👍/👎.
+
+### Mikrofonen
+
+Mikrofonknappen slår inspelningen **på och av**. När den är på lyssnar spelet mening för mening tills du trycker igen. Varje mening skickas, och medan personen svarar pausas lyssnandet så att den inte hör sig själv. Stänger du av mitt i en mening skickas det som hunnit sägas.
+
+En rad högst upp visar hela tiden vad mikrofonen gör: 🔴 *Lyssnar*, det den hör medan du pratar, ✓ *Uppfattat: …* när meningen har gått iväg, ⏸ *Väntar på svaret* och *Hörde inget*. Knappen är röd när den lyssnar och orange när den väntar. I inställningarna kan du i stället välja *En mening per tryck*.
 
 ## Närbildsläge
 

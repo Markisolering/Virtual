@@ -13,9 +13,18 @@ export const JOINT_HELP = {
   huvud_nick: 'positivt = nicka ner, negativt = titta upp',
   huvud_vrid: 'positivt = vrid huvudet åt vänster',
   huvud_luta: 'positivt = luta huvudet mot höger axel',
+  nacke_nick: 'bara nacken: positivt = böj nacken framåt, negativt = bakåt (huvud_* vrider nacke och huvud tillsammans)',
+  nacke_vrid: 'bara nacken: positivt = vrid åt vänster',
+  nacke_luta: 'bara nacken: positivt = luta mot höger',
+  kake: 'käken: öppna munnen i grader (0 = stängd, 25 = vidöppen)',
+  ogon_vrid: 'ögonen: positivt = titta åt vänster (grader, högst ca 30)',
+  ogon_nick: 'ögonen: positivt = titta ner, negativt = upp',
   overkropp_framat: 'positivt = böj överkroppen framåt (buga), negativt = luta bakåt',
   overkropp_vrid: 'positivt = vrid överkroppen åt vänster',
   overkropp_luta: 'positivt = luta åt höger',
+  landrygg_framat: 'bara ländryggen/magen: positivt = böj framåt, negativt = svanka',
+  landrygg_vrid: 'bara ländryggen: positivt = vrid åt vänster',
+  landrygg_luta: 'bara ländryggen: positivt = luta åt höger',
   brost_framat: 'bara bröstkorgen/övre ryggen: positivt = kuta, krypa ihop; negativt = sträcka på bröstet',
   brost_vrid: 'bara bröstkorgen: positivt = vrid åt vänster',
   brost_luta: 'bara bröstkorgen: positivt = luta åt höger',
@@ -31,6 +40,12 @@ export const JOINT_HELP = {
   h_handled_sida: 'höger handled: böj mot handflatan (positivt) eller handryggen',
   h_fingrar: 'höger hand: böj alla fyra fingrar (0 = raka, 90 = knutna), läggs till handformen',
   h_tumme: 'höger tumme: böj (0 = rak, 60 = in mot handflatan)',
+  h_tumme_in: 'höger tumme: för tummen in över handflatan (positivt) eller ut från handen (negativt)',
+  h_pekfinger: 'höger pekfinger: böj (0–90), läggs till handformen och fingrar',
+  h_langfinger: 'höger långfinger: böj',
+  h_ringfinger: 'höger ringfinger: böj',
+  h_lillfinger: 'höger lillfinger: böj',
+  h_fingrar_isar: 'höger hand: sprid fingrarna (positivt) eller tryck ihop dem',
   h_hand: `höger hand: ${HAND_FORMS.join(', ')}`,
   v_arm_framat: 'vänster arm, som höger',
   v_arm_utat: 'vänster arm, som höger',
@@ -41,6 +56,12 @@ export const JOINT_HELP = {
   v_handled_sida: 'vänster handled, som höger',
   v_fingrar: 'vänster hand, som höger',
   v_tumme: 'vänster tumme, som höger',
+  v_tumme_in: 'vänster tumme, som höger',
+  v_pekfinger: 'vänster pekfinger, som höger',
+  v_langfinger: 'vänster långfinger, som höger',
+  v_ringfinger: 'vänster ringfinger, som höger',
+  v_lillfinger: 'vänster lillfinger, som höger',
+  v_fingrar_isar: 'vänster hand, som höger',
   v_hand: `vänster hand: ${HAND_FORMS.join(', ')}`,
   h_ben_framat: 'höger ben: lyft framåt från höften',
   h_ben_utat: 'höger ben: lyft ut åt sidan',
@@ -523,13 +544,96 @@ const _qE = new THREE.Quaternion();
 const _eu = new THREE.Euler();
 const DEG = Math.PI / 180;
 
-// Underlagets höjd vid (x, z) för en punkt på höjden y: golvet eller en möbel (sätts av spelet)
-let support = () => 0;
+// Omvärlden som kroppen ska ta hänsyn till (sätts av spelet):
+// support(x, z, y) = underlagets höjd, solids = möbler som lådor {x1,z1,x2,z2,y1,y2},
+// walls = rummets väggar {minX, maxX, minZ, maxZ, door: {z1, z2, h}}, bodies(rig) = andra personers kroppar
+// som kapslar [{a, b, r}]
+const world = { support: () => 0, solids: [], walls: null, bodies: () => [] };
+const support = (x, z, y) => world.support(x, z, y);
+export function setWorld(w) {
+  Object.assign(world, w);
+}
 export function setSupport(fn) {
-  support = fn;
+  world.support = fn;
+}
+
+const _push = new THREE.Vector3();
+const _seg = new THREE.Line3();
+const _cp = new THREE.Vector3();
+// Hur långt och åt vilket håll en punkt (med radien r) måste flyttas för att inte vara inne i något
+// prev = var punkten var förra bildrutan. Den knuffas då ut genom den sida den kom in från, så att
+// en snabb rörelse inte tar sig igenom till andra sidan av en möbel.
+function pushOut(p, r, bodies, out, allowDown = true, prev = null) {
+  out.set(0, 0, 0);
+  // Möbler: ut genom den närmaste sidan (eller uppåt; nedåt bara under skivor som en bordsskiva)
+  let deepest = 0;
+  const from = prev && prev.distanceToSquared(p) < 0.25 ? prev : null;
+  for (const s of world.solids) {
+    if (p.x <= s.x1 - r || p.x >= s.x2 + r || p.z <= s.z1 - r || p.z >= s.z2 + r || p.y <= s.y1 - r || p.y >= s.y2 + r) continue;
+    // Sidor som punkten var utanför förra gången (om någon)
+    const was = from && {
+      x1: from.x <= s.x1 - r + 0.002,
+      x2: from.x >= s.x2 + r - 0.002,
+      z1: from.z <= s.z1 - r + 0.002,
+      z2: from.z >= s.z2 + r - 0.002,
+      y1: from.y <= s.y1 - r + 0.002,
+      y2: from.y >= s.y2 + r - 0.002,
+    };
+    const only = was && Object.values(was).some(Boolean) ? was : null;
+    let bx = 0;
+    let by = 0;
+    let bz = 0;
+    let best = Infinity;
+    const tryExit = (face, x, y, z) => {
+      if (only && !only[face]) return;
+      const l = Math.abs(x + y + z);
+      if (l < best) {
+        best = l;
+        bx = x;
+        by = y;
+        bz = z;
+      }
+    };
+    tryExit('x1', s.x1 - r - p.x, 0, 0);
+    tryExit('x2', s.x2 + r - p.x, 0, 0);
+    tryExit('z1', 0, 0, s.z1 - r - p.z);
+    tryExit('z2', 0, 0, s.z2 + r - p.z);
+    tryExit('y2', 0, s.y2 + r - p.y, 0);
+    if ((allowDown || only?.y1) && s.y1 > 0.05) tryExit('y1', 0, s.y1 - r - p.y, 0);
+    if (!Number.isFinite(best)) continue;
+    if (best > deepest) {
+      deepest = best;
+      _push.set(bx, by, bz);
+    }
+  }
+  if (deepest > 0) out.add(_push);
+  // Väggar (utom dörröppningen)
+  const w = world.walls;
+  if (w) {
+    const inDoor = p.z > w.door.z1 && p.z < w.door.z2 && p.y < w.door.h;
+    if (p.x - r < w.minX && !inDoor) out.x += w.minX + r - p.x;
+    if (p.x + r > w.maxX) out.x += w.maxX - r - p.x;
+    if (p.z - r < w.minZ) out.z += w.minZ + r - p.z;
+    if (p.z + r > w.maxZ) out.z += w.maxZ - r - p.z;
+  }
+  // Andra personer
+  for (const c of bodies) {
+    _seg.set(c.a, c.b).closestPointToPoint(p, true, _cp);
+    const d = p.distanceTo(_cp);
+    const need = c.r + r;
+    if (d >= need) continue;
+    if (d < 1e-4) _push.set(p.x - (c.a.x + c.b.x) / 2, 0, p.z - (c.a.z + c.b.z) / 2);
+    else _push.copy(p).sub(_cp);
+    if (_push.lengthSq() < 1e-8) _push.set(1, 0, 0);
+    out.addScaledVector(_push.normalize(), need - d);
+  }
+  return out;
 }
 
 // Fingrarnas böjning i grader för varje handform: [tumme, pekfinger, långfinger, ringfinger, lillfinger]
+const FINGER_NAMES = ['pekfinger', 'langfinger', 'ringfinger', 'lillfinger'];
+// Hur mycket varje finger sprids (tumme, pek, lång, ring, lill)
+const SPREAD = [0, 1, 0.3, -0.4, -1];
 const FORMS = {
   oppen: [0, 0, 0, 0, 0],
   knytnave: [40, 85, 90, 90, 90],
@@ -579,7 +683,10 @@ export class MotionRig {
       this.invWorld.set(bone, bone.getWorldQuaternion(new THREE.Quaternion()).invert());
     }
     // Fingrarnas böjningsaxel: tvärs över handflatan, mätt i neutral pose (handen hänger med handflatan inåt)
+    this.prev = new Map();
     this.fingerAxis = {};
+    this.handDir = {};
+    this.palmNormal = {};
     for (const s of ['R', 'L']) {
       const x = this.b[s];
       const f1 = x.fingers[1]?.[0];
@@ -588,6 +695,9 @@ export class MotionRig {
         // Axeln går från lillfingret till pekfingret
         const across = f1.getWorldPosition(new THREE.Vector3()).sub(f4.getWorldPosition(new THREE.Vector3())).normalize();
         this.fingerAxis[s] = across;
+        // Handens längdriktning och handflatans normal (mätt i neutral pose)
+        this.handDir[s] = x.fingers[2][0].getWorldPosition(new THREE.Vector3()).sub(x.hand.getWorldPosition(new THREE.Vector3())).normalize();
+        this.palmNormal[s] = new THREE.Vector3().crossVectors(across, this.handDir[s]).normalize();
       }
     }
     // Höftens läge i modellen (vridpunkt för volt, hjulning och rulla) och hur högt fotleden och tårna
@@ -633,11 +743,12 @@ export class MotionRig {
     const has = (re) => [...keys].some((k) => re.test(k));
     if (has(/^(overkropp|brost)/)) this.b.spine.forEach((b) => used.add(b));
     if (has(/^hoft/)) [this.hipBone, this.torso[0]].forEach((b) => used.add(b));
-    if (has(/^huvud/)) [this.b.neck, this.b.head].forEach((b) => used.add(b));
+    if (has(/^(huvud|nacke)/)) [this.b.neck, this.b.head].forEach((b) => used.add(b));
+    if (has(/^landrygg/)) this.torso.forEach((b) => used.add(b));
     for (const [p, s] of [['h', 'R'], ['v', 'L']]) {
       const x = this.b[s];
       if (has(new RegExp(`^${p}_(arm|armbage|handled|underarm)`))) [x.upper, x.fore, x.hand].forEach((b) => used.add(b));
-      if (has(new RegExp(`^${p}_(hand|fingrar|tumme)$`))) x.fingers.flat().forEach((b) => used.add(b));
+      if (has(new RegExp(`^${p}_(hand|fingrar|tumme|tumme_in|pekfinger|langfinger|ringfinger|lillfinger|fingrar_isar)$`))) x.fingers.flat().forEach((b) => used.add(b));
       if (def.hela_kroppen || has(new RegExp(`^${p}_(ben|kna)`))) [x.thigh, x.calf].forEach((b) => used.add(b));
     }
     for (const [p, s] of [['h', 'R'], ['v', 'L']]) {
@@ -695,7 +806,17 @@ export class MotionRig {
       this.rotate(s, torsoU, v('overkropp_vrid') / torso.length + v('brost_vrid') * chest);
       this.rotate(s, torsoF, v('overkropp_luta') / torso.length + v('brost_luta') * chest);
     });
+    if (torso[0] && (pose.landrygg_framat || pose.landrygg_vrid || pose.landrygg_luta)) {
+      this.rotate(torso[0], torsoR, -v('landrygg_framat'));
+      this.rotate(torso[0], torsoU, v('landrygg_vrid'));
+      this.rotate(torso[0], torsoF, v('landrygg_luta'));
+    }
     const top = spine[spine.length - 1] || pelvis;
+    if (neck && (pose.nacke_nick || pose.nacke_vrid || pose.nacke_luta)) {
+      this.rotate(neck, this.axis(top, RIGHT), -v('nacke_nick'));
+      this.rotate(neck, this.axis(top, UP), v('nacke_vrid'));
+      this.rotate(neck, this.axis(top, FWD), v('nacke_luta'));
+    }
     for (const [bone, share] of [[neck, 0.4], [head, 0.6]]) {
       if (!bone) continue;
       this.rotate(bone, this.axis(top, RIGHT), -v('huvud_nick') * share);
@@ -748,15 +869,22 @@ export class MotionRig {
       // Fingrar: böj varje led runt axeln tvärs över handflatan (handform plus fingrar/tumme)
       const curls = pose[`${p}_f0`] !== undefined ? [0, 1, 2, 3, 4].map((k) => pose[`${p}_f${k}`]) : FORMS[pose[`${p}_hand`]];
       const extraF = v(`${p}_fingrar`);
-      const extraT = v(`${p}_tumme`);
+      const extra = [v(`${p}_tumme`), ...FINGER_NAMES.map((n) => extraF + v(`${p}_${n}`))];
+      const spread = v(`${p}_fingrar_isar`);
+      const thumbIn = v(`${p}_tumme_in`);
       const across = this.fingerAxis[s];
-      if ((curls || extraF || extraT) && across && x.hand) {
+      if ((curls || extra.some(Boolean) || spread || thumbIn) && across && x.hand) {
+        const side = s === 'R' ? 1 : -1;
         x.fingers.forEach((chain, fi) => {
-          const bend = (curls ? curls[fi] : 0) * w + (fi === 0 ? extraT : extraF);
+          if (!chain.length) return;
+          // Sprida fingrarna: runt handflatans normal (pekfingret mot tummen, lillfingret bort)
+          if (spread && fi > 0) this.rotate(chain[0], this.axis(x.hand, this.palmNormal[s]).clone(), -spread * SPREAD[fi]);
+          if (thumbIn && fi === 0) this.rotate(chain[0], this.axis(x.hand, this.handDir[s]).clone(), -side * thumbIn);
+          const bend = (curls ? curls[fi] : 0) * w + extra[fi];
           if (!bend) return;
           for (const bone of chain) {
             const ax = this.axis(x.hand, across).clone();
-            this.rotate(bone, ax, (s === 'R' ? 1 : -1) * bend * (fi === 0 ? 0.5 : 1));
+            this.rotate(bone, ax, side * bend * (fi === 0 ? 0.5 : 1));
           }
         });
       }
@@ -775,7 +903,122 @@ export class MotionRig {
 
     // 6. Kontakt: ingen del av kroppen får gå igenom golvet eller en möbel, och står, sitter eller
     // ligger personen (inte i luften) dras kroppen ner tills den vilar mot underlaget
-    if (contact > 0) this.ground(pose, contact);
+    const bodies = world.bodies(this);
+    if (contact > 0) {
+      this.ground(pose, contact);
+      this.pushBody(contact, bodies);
+    }
+    // 7. Armar och ben som ändå går in i något vrids ut i sina leder
+    this.fixLimbs(bodies, used);
+    // Kom ihåg var kroppsdelarna är, till nästa bildruta
+    for (const [bone, , up] of this.contactPoints()) {
+      if (!this.prev.has(bone)) this.prev.set(bone, new THREE.Vector3());
+      this.pointOf(bone, up, this.prev.get(bone));
+    }
+  }
+
+  // Flytta hela kroppen ut ur möbler, väggar och andra personer
+  pushBody(contact, bodies) {
+    const total = _pos;
+    for (let iter = 0; iter < 5; iter++) {
+      let px = 0;
+      let nx = 0;
+      let py = 0;
+      let ny = 0;
+      let pz = 0;
+      let nz = 0;
+      for (const [bone, r, up] of this.contactPoints()) {
+        this.pointOf(bone, up, _p1);
+        // Hela kroppen knuffas uppåt eller åt sidan, aldrig ner under en bordsskiva
+        pushOut(_p1, r, bodies, _p2, false, this.prev.get(bone));
+        px = Math.max(px, _p2.x);
+        nx = Math.min(nx, _p2.x);
+        py = Math.max(py, _p2.y);
+        ny = Math.min(ny, _p2.y);
+        pz = Math.max(pz, _p2.z);
+        nz = Math.min(nz, _p2.z);
+      }
+      // Kläms kroppen från båda håll vinner det största
+      total.set(px > -nx ? px : nx, py > -ny ? py : ny, pz > -nz ? pz : nz);
+      if (total.lengthSq() < 1e-6) break;
+      // Förflyttningen räknas i rotens koordinater (roten är bara vriden runt y)
+      this.model.parent.getWorldQuaternion(_q).invert();
+      this.model.position.addScaledVector(total.applyQuaternion(_q), contact);
+      this.model.updateMatrixWorld(true);
+    }
+  }
+
+  // Hur djupt någon del av kroppen är inne i något just nu (meter), för felsökning och tester
+  maxPenetration() {
+    const bodies = world.bodies(this);
+    let worst = 0;
+    let who = '';
+    for (const [bone, r, up] of this.contactPoints()) {
+      this.pointOf(bone, up, _p1);
+      const d = pushOut(_p1, r - 0.01, bodies, _p2).length();
+      if (d > worst) {
+        worst = d;
+        who = bone.name;
+      }
+    }
+    return { depth: worst, part: who };
+  }
+
+  pointOf(bone, up, out) {
+    bone.getWorldPosition(out);
+    if (up) out.addScaledVector(this.axis(bone, UP), up);
+    return out;
+  }
+
+  // Leder och de punkter de styr: överarmen flyttar armbågen, underarmen handen, låret knät osv.
+  limbChains() {
+    if (this._chains) return this._chains;
+    const r = new Map(this.contactPoints().map(([b, rad]) => [b, rad]));
+    this._chains = [];
+    for (const s of ['R', 'L']) {
+      const x = this.b[s];
+      const finger = x.fingers[2]?.[1];
+      this._chains.push([x.upper, [x.fore]], [x.fore, [x.hand, finger]], [x.thigh, [x.calf]], [x.calf, [x.foot, x.toe]]);
+      for (const leg of [x.thigh, x.calf]) if (leg) leg.isLeg = true;
+    }
+    this._chains = this._chains.filter(([j]) => j).map(([j, pts]) => [j, pts.filter(Boolean).map((b) => [b, r.get(b) ?? 0.03])]);
+    return this._chains;
+  }
+
+  // Armarna rättas alltid; benen bara om rörelsen styr dem (annars skulle t.ex. knäna hos den som
+  // sitter i soffan knuffas av sitsen)
+  fixLimbs(bodies, used) {
+    if (!world.solids.length && !bodies.length) return;
+    for (const [joint, pts] of this.limbChains()) {
+      if (!used.has(joint) && joint.isLeg) continue;
+      for (let iter = 0; iter < 2; iter++) {
+        let best = 0;
+        let hit = null;
+        for (const [bone, rad] of pts) {
+          bone.getWorldPosition(_p1);
+          pushOut(_p1, rad, bodies, _p2, true, this.prev.get(bone));
+          // Golvet
+          const floor = support(_p1.x, _p1.z, _p1.y - rad);
+          if (_p1.y - rad < floor - 0.002) _p2.y = Math.max(_p2.y, floor + rad - _p1.y);
+          const l = _p2.length();
+          if (l > best) {
+            best = l;
+            hit = bone;
+            _push.copy(_p2);
+            _cp.copy(_p1);
+          }
+        }
+        if (best < 0.004) break;
+        // Vrid leden så att punkten följer knuffen (rotationsaxel = hävarm × knuff)
+        joint.getWorldPosition(_p2);
+        const arm = _cp.sub(_p2);
+        const axis = _p1.crossVectors(arm, _push);
+        const len = axis.length();
+        if (len < 1e-6 || !hit) break;
+        const angle = Math.min(joint.isLeg ? 0.25 : 0.4, ((best * best) / len) * 1.1);
+        this.rotate(joint, axis.divideScalar(len), angle / DEG);
+      }
+    }
   }
 
   // Punkter på kroppen och ungefär hur tjock kroppen är där (meter)
@@ -835,7 +1078,8 @@ export const MOTION_TOOL = {
   description: `Skapa och utför en egen kroppsrörelse när spelaren ber om något som inte finns bland handlingarna i gor_handling (t.ex. "peka på fönstret", "gör en karatespark", "visa hur stor fisken var", "gör en honnör").
 Beskriv rörelsen som nyckelbilder: tid i sekunder från start plus vinklar i grader för de leder som ska röra sig. Alla vinklar utgår från att personen står rakt med armarna hängande längs sidorna (värde 0). Leder som inte anges i en nyckelbild behåller värdet från förra nyckelbilden. En mjuk kurva går genom nyckelbilderna och lederna fjädrar lite, så rörelsen blir följsam av sig själv.
 Gör rörelserna MÄNSKLIGA, inte stela:
-- Använd många leder samtidigt. En verklig rörelse engagerar hela kroppen: höfterna (hoft_*), bröstkorgen (brost_*), axlarna (axel, axel_framat), huvudet som följer med eller tittar dit handen går, underarmarna (underarm_vrid), handlederna och fingrarna.
+- Använd många leder samtidigt. En verklig rörelse engagerar hela kroppen: höfterna (hoft_*), ländryggen (landrygg_*), bröstkorgen (brost_*), axlarna (axel, axel_framat), nacken (nacke_*) och huvudet som följer med eller tittar dit handen går, ögonen (ogon_*), käken (kake), underarmarna (underarm_vrid), handlederna, varje finger för sig (pekfinger, langfinger, ringfinger, lillfinger, tumme, tumme_in, fingrar_isar), fotlederna och tårna.
+- Kroppen kan inte gå igenom möbler, väggar eller andra personer: en hand som trycks mot bordet stannar på bordsskivan, och den som rullar mot soffan stannar mot den.
 - Förberedelse och efterrörelse: böj knäna och dra armarna bakåt innan ett hopp, låt kroppen fjädra och svaja tillbaka efter en landning eller ett kast.
 - Asymmetri och överlapp: vänster och höger sida är sällan exakt lika, och delar av kroppen startar och stannar lite efter varandra (huvudet och händerna sist).
 - Tätare nyckelbilder (0,15–0,4 s) i snabba partier, glesare i lugna. Upprepa en bild med små skillnader för att hålla en pose levande.

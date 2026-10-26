@@ -641,6 +641,22 @@ export class Character {
     }
   }
 
+  // Kroppen som kapslar (för att andra inte ska gå igenom den)
+  capsules() {
+    const b = this.rig.b;
+    const P = (bone) => bone.getWorldPosition(new THREE.Vector3());
+    const head = P(b.head);
+    const caps = [
+      { a: P(b.pelvis), b: P(b.neck), r: 0.13 },
+      { a: head, b: head.clone().addScaledVector(this.rig.axis(b.head, UP), 0.12), r: 0.1 },
+    ];
+    for (const s of ['R', 'L']) {
+      const x = b[s];
+      caps.push({ a: P(x.thigh), b: P(x.calf), r: 0.075 }, { a: P(x.calf), b: P(x.foot), r: 0.055 }, { a: P(x.upper), b: P(x.fore), r: 0.05 }, { a: P(x.fore), b: P(x.hand), r: 0.04 });
+    }
+    return caps;
+  }
+
   // Huvudets position i världen (följer animationen, så den stämmer även när personen sitter)
   headWorld() {
     if (this.bones.head) return this.bones.head.getWorldPosition(new THREE.Vector3());
@@ -799,8 +815,10 @@ export class Character {
   commitMotion(m, world) {
     m.committed = true;
     const last = m.frames[m.frames.length - 1];
-    const fwd = (last.kropp_framat || 0) / 100;
-    const side = (last.kropp_sidled || 0) / 100;
+    // Där kroppen faktiskt är (en vägg eller möbel kan ha stoppat den på vägen)
+    const moved = last.kropp_framat || last.kropp_sidled;
+    const fwd = moved ? this.model.position.z : 0;
+    const side = moved ? -this.model.position.x : 0;
     const turn = last.snurra || 0;
     const shift = {};
     for (const k of ['volt', 'hjulning', 'rulla', 'snurra']) {
@@ -813,13 +831,16 @@ export class Character {
       const sin = Math.sin(this.heading);
       const cos = Math.cos(this.heading);
       // Personens höger är -x i modellen, framåt +z
-      const x = this.position.x + sin * fwd - cos * side;
-      const z = this.position.z + cos * fwd + sin * side;
-      if (world.nav.walkable(...world.nav.cellOf(x, z))) {
+      // Så långt det går: står kroppen mot en möbel flyttas personen bara en bit
+      for (const f of [1, 0.85, 0.7, 0.55, 0.4, 0.25]) {
+        const x = this.position.x + (sin * fwd - cos * side) * f;
+        const z = this.position.z + (cos * fwd + sin * side) * f;
+        if (!world.nav.walkable(...world.nav.cellOf(x, z))) continue;
         this.position.x = x;
         this.position.z = z;
-        shift.kropp_framat = last.kropp_framat;
-        shift.kropp_sidled = last.kropp_sidled;
+        if (fwd) shift.kropp_framat = fwd * f * 100;
+        if (side) shift.kropp_sidled = side * f * 100;
+        break;
       }
     }
     if (shift.snurra) {
@@ -1219,6 +1240,11 @@ export class Character {
     const targetJaw = this.speaking > 0 ? 0.03 + Math.abs(Math.sin(t * 13.7) * Math.sin(t * 5.3 + this.id)) * 0.2 : 0;
     this.jaw += (targetJaw - this.jaw) * Math.min(1, dt * 18);
     if (b.jaw && this.jaw > 0.002 && !this.hasFace) rotateBoneWorld(b.jaw, _axis, this.jaw);
+    // Käke och ögon i en egen rörelse
+    const mp = this.motion?.pose;
+    if (b.jaw && mp?.kake) rotateBoneWorld(b.jaw, _axis, (Math.max(0, Math.min(30, mp.kake)) * Math.PI) / 180);
+    const eyeYaw = mp?.ogon_vrid ? (Math.max(-35, Math.min(35, mp.ogon_vrid)) * Math.PI) / 180 : 0;
+    const eyePitch = mp?.ogon_nick ? (Math.max(-30, Math.min(30, mp.ogon_nick)) * Math.PI) / 180 : 0;
 
     // Små naturliga ögonryck
     this.saccade.timer -= dt;
@@ -1229,9 +1255,9 @@ export class Character {
     }
     // Ögonen tar resten av vägen mot målet (efter huvudets vridning), plus små ryck
     b.eyes.forEach((eye, i) => {
-      let [ey, ep] = this.lookTarget && w === 1 ? aim(eye, this.eyeForward[i]) : [0, 0];
-      ey = Math.max(-0.35, Math.min(0.35, ey)) + this.saccade.x;
-      ep = Math.max(-0.25, Math.min(0.25, ep)) + this.saccade.y;
+      let [ey, ep] = this.lookTarget && w === 1 && !eyeYaw && !eyePitch ? aim(eye, this.eyeForward[i]) : [0, 0];
+      ey = Math.max(-0.35, Math.min(0.35, ey)) + this.saccade.x + eyeYaw;
+      ep = Math.max(-0.25, Math.min(0.25, ep)) + this.saccade.y - eyePitch;
       rotateBoneWorld(eye, UP, ey);
       rotateBoneWorld(eye, _axis, -ep);
     });
