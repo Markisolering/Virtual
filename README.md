@@ -172,12 +172,30 @@ Välj **Talking head** på startskärmen eller under ⚙︎ Inställningar → *
 
 Ett helt separat testläge med en egen renderare för så realistiska huvuden som möjligt (`src/studio/`). Välj **Huvudstudio (test)** på startskärmen eller under ⚙︎ → *Läge*; ← går tillbaka. Inget rum laddas, bara ett huvud i ett fotostudioljus. Dra för att vrida, nyp för att zooma ända in på ögat, 🔄 för en ny person, uttrycksknappar och ett textfält där personen säger det du skriver (med läppsynk).
 
+### Skannat huvud (förval)
+
+Under ⚙︎ → *Modell* väljer du mellan **Skannat huvud** och spelets egna personer. Det skannade huvudet är [ICT-FaceKit](https://github.com/ICT-VGL/ICT-FaceKit) (USC Institute for Creative Technologies, MIT-licens): en Light Stage-skanning med 26 719 hörn (52 000 trianglar) och allt som finns i ett riktigt huvud – munhåla, tandkött, tunga, tänder, ögonglober med hornhinna och iris, tårvätska längs ögonlocken, ögonfransar och ett skuggnät mellan ögonlock och öga (`src/studio/scanhead.js`, data i `public/scanhead/`).
+
+- **Nya personer:** 🔄 blandar 24 formvariationer (identiteter) från skanningarna till ett nytt ansikte, och slumpar hudton, ögonfärg, hårfärg, skäggstubb, fräknar, rodnad, ålder, hårfäste och tröja.
+- **Hudtexturer som bakas i appen** (`src/studio/skinbake.js`): skanningen har inga texturer, så de räknas fram på grafikkortet för varje person (4096 × 2048): hudfärg med blodfärg på kinder, näsa, öron och ögonlock, blåaktigt under ögonen, fläckar, fräknar och födelsemärken, läppar med amorbåge, ögonbryn strå för strå, skäggstubb och snaggat hår med mjukt hårfäste. En höjdkarta med porer (större på näsan), fina linjer, pannrynkor, kråksparkar, näs-läppveck och läpplinjer görs om till en normalkarta, och glansen varierar (blankare T-zon och läppar, mattare kinder och hår).
+- **Ögon:** egen hornhinna (blank, med reflexer) framför irisgeometrin, iris med fibrer, krypter och krans i personens ögonfärg, ögonvita med blodkärl och mörkare limbus, samt skugga från ögonlocken.
+- **Ansiktet rör sig:** 53 ansiktsformer i ARKit-stil styr läppsynken (munformerna byggs av formerna för käke, läppar och mungipor), uttrycken, blinkningarna och blicken, som söker kameran. Huvudet rör sig som i talking head-läget.
+- Ljuset är fysikaliskt rimligt (verklig hudreflektans), med neutral tonmappning som behåller hudens färger.
+
 - **Många polygoner** (`subdivide.js`): Loop-subdivision delar varje triangel i fyra och jämnar ut ytan, två gånger för huvudet (ca 45 000 trianglar i stället för ca 3 400) och en gång för halsen och axlarna. UV, hudvikter och alla 40 ansiktsformer räknas om, så läppsynk och uttryck fungerar som förut.
 - **Hud** (`skin.js`): ljusspridning under ytan (rött sprids längst, mer där ytan är krökt), genomlysning i öron och näsvingar i motljus, diffust ljus mot en suddigare normalkarta, porer i en egen detaljkarta, två glanslager (fet yta och matt underlag) och lite sammetsglans. Bara det som har hudens färgton får hudljuset.
 - **Ögon** (`eyes.js`): modellens ögon ersätts av ögonglober med välvd, blank hornhinna. Irisen ligger bakom hornhinnan och ses genom den med ljusbrytning (index 1,376), så den får djup. Kanten runt irisen är mörkare och ovanlocket skuggar. Färgerna hämtas från modellens egen ögontextur.
 - **Hår** (`hair.js`): glansen löper längs stråna (anisotropi), mjuka kanter med alpha-to-coverage och sammetsglans i motljus.
 - **Ljus och bild**: studiomiljö med ljuslådor som reflexer, huvudljus med mjuka skuggor (VSM), fylljus och kantljus, fyra ljusinställningar (studio, fönster, dramatiskt, kväll), kontaktskuggor (GTAO), AgX-tonmappning, kantutjämning med 4× MSAA, lite objektivfärgfel, vinjett och filmkorn. Upplösningen sänks eller höjs automatiskt så att bilden flyter.
 - Allt kan slås av och på under ⚙︎, och **Håll in för att jämföra** visar originalet.
+
+## Språk / Language
+
+Appen finns på svenska och engelska. Välj språk högst upp på startskärmen eller under ⚙︎ Inställningar → *Språk / Language*. Allt följer med: gränssnittet, personernas namn och bakgrund, den inbyggda samtalsmotorn, kommandona ("sit on the sofa", "follow me", "wear a red shirt", "give Anna a hug"), Claudes instruktioner, rösten (en-US för tal och taligenkänning) och läppsynken. Nya användare får språket från telefonen; den som redan har använt appen fortsätter på svenska.
+
+*The app is available in Swedish and English. Pick the language at the top of the start screen or under ⚙︎ Settings → Language. Everything follows: the interface, the people's names and backgrounds, the built-in conversation engine, commands, Claude's instructions, the voice (en-US speech and speech recognition) and lip sync.*
+
+Texterna skrivs på svenska i koden och översätts med `t()` (`src/i18n.js`, ordlistan i `src/i18n-en.js`). Samtalsmotorn och kommandotolken har egna engelska versioner (`src/dialogue-en.js`, `src/commands-en.js`). `node tools/check-i18n.mjs` listar texter som saknar översättning.
 
 ## Närbildsläge
 
@@ -229,6 +247,10 @@ src/avaturn.js      Egna avatarer: Avaturns redigerare, uppladdning och lagring 
 src/retarget.js     För över posen från Rocketbox-skelettet till en avatar med standardskelett
 src/face.js         Ansiktet som pratar: läppsynk, huvudrörelser, ögonbryn, blinkningar och blick
 src/boot.js         Startfil: laddar huvudstudion eller spelet
-src/studio/         Huvudstudion: egen renderare med subdivision, hud, ögon och hår
+src/studio/         Huvudstudion: egen renderare med subdivision, hud, ögon och hår, skannat huvud och bakade hudtexturer
+public/scanhead/    Det skannade huvudet (ICT-FaceKit, konverterat med tools/convert-ictfacekit.mjs)
+src/i18n.js         Språk: t() och översättning av gränssnittet (ordlistan i src/i18n-en.js)
+src/dialogue-en.js  Engelsk samtalsmotor och engelska instruktioner till Claude
+src/commands-en.js  Engelska kommandon och repliker
 public/draco/       Draco-avkodare för komprimerade avatarer
 ```

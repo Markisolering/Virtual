@@ -80,7 +80,7 @@ export const skinParams = {
   detailScale: { value: 70 },
 };
 
-const DIRECT = /* glsl */ `
+export const SKIN_DIRECT = /* glsl */ `
 vec3 gSkinDiffN;
 float gSkinCurv;
 float gSkinMask;
@@ -152,7 +152,7 @@ export function makeSkinMaterial(source, skinTone) {
     );
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float vSkinCurv;\nuniform sampler2D skinDetailMap;\nuniform float skinDetailStrength;\nuniform float skinDetailScale;\nuniform vec4 skinTone;')
-      .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${DIRECT}`)
+      .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${SKIN_DIRECT}`)
       .replace(
         '#include <normal_fragment_maps>',
         `gSkinCurv = vSkinCurv;

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { en, L } from './i18n.js';
 
 // Egna rörelser som beskrivs med nyckelbilder: vinklar i grader för huvud, överkropp, armar och ben.
 // Claude kan skapa nya rörelser med verktyget skapa_rorelse, och de sparas så att personerna kan göra dem igen.
@@ -413,7 +414,32 @@ const TITLES = {
   rulla_runt: 'rulla runt',
   resa_sig: 'resa sig',
 };
+// Engelska namn och beskrivningar för de färdiga rörelserna
+export const PRESETS_EN = {
+  peka: ['point', 'points straight ahead with the right hand'],
+  tumme_upp: ['thumbs up', 'gives a thumbs up with the right hand'],
+  buga: ['bow', 'bows deeply'],
+  nicka: ['nod', 'nods in agreement'],
+  skaka_pa_huvudet: ['shake head', 'shakes their head'],
+  armarna_i_kors: ['arms crossed', 'stands with arms crossed'],
+  handerna_pa_hoften: ['hands on hips', 'stands with hands on hips'],
+  hoppa: ['jump', 'jumps with both feet, arms up'],
+  kullerbytta: ['somersault', 'does a forward somersault'],
+  bakatvolt: ['backflip', 'does a backflip in the air'],
+  hjula: ['cartwheel', 'does a cartwheel'],
+  sta_pa_handerna: ['handstand', 'does a handstand for a while'],
+  rulla_runt: ['roll around', 'lies down and rolls around on the floor'],
+  snurra: ['spin', 'spins around with arms out'],
+  visa_musklerna: ['flex', 'flexes their arm muscles'],
+  sitta_pa_golvet: ['sit on the floor', 'sits on the floor with legs forward'],
+  ligga_pa_rygg: ['lie on back', 'lies down on their back on the floor'],
+  ligga_pa_magen: ['lie on stomach', 'lies down on their stomach on the floor'],
+  sta_pa_kna: ['kneel', 'kneels down'],
+  resa_sig: ['get up', 'gets up from the floor'],
+  fridstecken: ['peace sign', 'makes a peace sign with the right hand'],
+};
 export function motionTitle(name) {
+  if (en && PRESETS_EN[name]) return PRESETS_EN[name][0];
   return TITLES[name] || String(name).replace(/_/g, ' ');
 }
 
@@ -1098,7 +1124,8 @@ const jointProps = Object.fromEntries(
 
 export const MOTION_TOOL = {
   name: 'skapa_rorelse',
-  description: `Skapa och utför en egen kroppsrörelse när spelaren ber om något som inte finns bland handlingarna i gor_handling (t.ex. "peka på fönstret", "gör en karatespark", "visa hur stor fisken var", "gör en honnör").
+  description: L(
+    `Skapa och utför en egen kroppsrörelse när spelaren ber om något som inte finns bland handlingarna i gor_handling (t.ex. "peka på fönstret", "gör en karatespark", "visa hur stor fisken var", "gör en honnör").
 Beskriv rörelsen som nyckelbilder: tid i sekunder från start plus vinklar i grader för de leder som ska röra sig. Alla vinklar utgår från att personen står rakt med armarna hängande längs sidorna (värde 0). Leder som inte anges i en nyckelbild behåller värdet från förra nyckelbilden. En mjuk kurva går genom nyckelbilderna och lederna fjädrar lite, så rörelsen blir följsam av sig själv.
 Gör rörelserna MÄNSKLIGA, inte stela:
 - Använd många leder samtidigt. En verklig rörelse engagerar hela kroppen: höfterna (hoft_*), ländryggen (landrygg_*), bröstkorgen (brost_*), axlarna (axel, axel_framat), nacken (nacke_*) och huvudet som följer med eller tittar dit handen går, ögonen (ogon_*), käken (kake), underarmarna (underarm_vrid), handlederna, varje finger för sig (pekfinger, langfinger, ringfinger, lillfinger, tumme, tumme_in, fingrar_isar), fotlederna och tårna.
@@ -1113,14 +1140,30 @@ Sätt hall_kvar = true om personen ska stanna kvar i sista posen (t.ex. ligga kv
 Recept: ligga på rygg från sittande på golvet = volt -90 med benen raka. Ligga på mage = volt 90. Sitta på golvet = hojd -86, ben_framat 85 (båda), kna 20, händerna bakom (arm_framat -30). Stå på knä = hojd -48, kna 90 (båda), fot -50, tar 40. Kullerbytta = huk, sedan volt 0→360 under ca 1,4 s medan kropp_framat ökar till ca 120 och kroppen är hopkrupen (kna 130, ben_framat 115, overkropp_framat 60, huvud_nick 60). Färdiga rörelser att utgå från: ${Object.keys(PRESETS).join(', ')}.
 Ge rörelsen ett kort namn (små bokstäver, understreck) så sparas den och kan göras igen med spela_rorelse.
 Exempel (vinka med höger hand): {"namn":"vinka_glatt","beskrivning":"vinkar glatt","loop":false,"hela_kroppen":false,"nyckelbilder":[{"tid":0.35,"h_arm_utat":145,"h_armbage":30,"h_underarm_vrid":-20,"h_hand":"oppen","huvud_luta":-6,"brost_luta":-4,"h_axel":8},{"tid":0.6,"h_armbage":60,"h_handled":10},{"tid":0.85,"h_armbage":25,"h_handled":-10},{"tid":1.1,"h_armbage":60,"h_handled":10},{"tid":1.35,"h_armbage":28,"h_handled":-5},{"tid":1.7,"h_arm_utat":40,"h_armbage":40,"huvud_luta":0,"brost_luta":0,"h_axel":0}]}`,
+    `Create and perform your own body movement when the player asks for something that is not among the actions in gor_handling (e.g. "point at the window", "do a karate kick", "show how big the fish was", "salute").
+Describe the movement as keyframes (nyckelbilder): time in seconds from the start (tid) plus angles in degrees for the joints that should move. All angles are relative to standing straight with the arms hanging along the sides (value 0). Joints not given in a keyframe keep the value from the previous keyframe. A smooth curve runs through the keyframes and the joints spring a little, so the movement flows by itself. Parameter and joint names are Swedish identifiers – use them exactly (h_ = right side, v_ = left side).
+Make movements HUMAN, not stiff:
+- Use many joints at once. A real movement engages the whole body: the hips (hoft_*), lower back (landrygg_*), chest (brost_*), shoulders (axel, axel_framat), neck (nacke_*) and the head that follows or looks where the hand goes, the eyes (ogon_*), the jaw (kake), forearms (underarm_vrid), wrists, each finger separately (pekfinger = index, langfinger = middle, ringfinger = ring, lillfinger = little, tumme = thumb, tumme_in, fingrar_isar = spread), the ankles and the toes.
+- The body cannot pass through furniture, walls or other people: a hand pressed against the table stops on the table top, and someone rolling towards the sofa stops against it.
+- Anticipation and follow-through: bend the knees and pull the arms back before a jump, let the body spring and sway back after a landing or a throw.
+- Asymmetry and overlap: left and right are rarely exactly the same, and body parts start and stop slightly after one another (the head and hands last).
+- Denser keyframes (0.15–0.4 s) in fast parts, sparser in calm ones. Repeat a frame with small differences to keep a pose alive.
+- Weight: standing on one leg tilts the hip (hoft_luta) and the upper body the other way.
+Whole body: with hela_kroppen = true you control the whole skeleton freely (the normal animation is switched off). The body is automatically kept against the floor and furniture: it never sinks through anything and rests on the surface when sitting, lying, kneeling or on the hands, so the height (hojd) only needs to be approximate. Set luft = 1 when the body should leave the ground (jump, flip) and back to 0 on landing. volt, hjulning and rulla rotate the body around the hips (somersault, cartwheel, rolling on the floor, handstand = volt 180 with arms straight up); kropp_lutning and kropp_sida rotate around the feet. kropp_framat/kropp_sidled move the body; if the movement ends standing, the person is actually moved there.
+Set hela_kroppen = true as soon as the legs, hips, height or the body's tilt are used; otherwise the legs carry on as usual (and the movement can be done seated).
+Set hall_kvar = true if the person should stay in the last pose (e.g. stay lying on the floor) until the player asks for something else. The next movement starts smoothly from that pose.
+Recipes: lying on the back from sitting on the floor = volt -90 with straight legs. Lying on the stomach = volt 90. Sitting on the floor = hojd -86, ben_framat 85 (both), kna 20, hands behind (arm_framat -30). Kneeling = hojd -48, kna 90 (both), fot -50, tar 40. Somersault = crouch, then volt 0→360 over about 1.4 s while kropp_framat increases to about 120 and the body is tucked (kna 130, ben_framat 115, overkropp_framat 60, huvud_nick 60). Ready-made movements to start from: ${Object.keys(PRESETS).join(', ')}.
+Give the movement a short name (namn: lower case, underscores) and it is saved and can be done again with spela_rorelse. Write beskrivning in English.
+Example (wave with the right hand): {"namn":"happy_wave","beskrivning":"waves happily","loop":false,"hela_kroppen":false,"nyckelbilder":[{"tid":0.35,"h_arm_utat":145,"h_armbage":30,"h_underarm_vrid":-20,"h_hand":"oppen","huvud_luta":-6,"brost_luta":-4,"h_axel":8},{"tid":0.6,"h_armbage":60,"h_handled":10},{"tid":0.85,"h_armbage":25,"h_handled":-10},{"tid":1.1,"h_armbage":60,"h_handled":10},{"tid":1.35,"h_armbage":28,"h_handled":-5},{"tid":1.7,"h_arm_utat":40,"h_armbage":40,"huvud_luta":0,"brost_luta":0,"h_axel":0}]}`,
+  ),
   input_schema: {
     type: 'object',
     properties: {
-      namn: { type: 'string', description: 'kort namn, t.ex. honnor eller karatespark' },
-      beskrivning: { type: 'string', description: 'vad rörelsen föreställer, några ord' },
-      loop: { type: 'boolean', description: 'upprepa rörelsen en stund (t.ex. för dans eller jubel)' },
-      hela_kroppen: { type: 'boolean', description: 'styr hela kroppen (ben, höjd, lutning); den vanliga animationen stängs av' },
-      hall_kvar: { type: 'boolean', description: 'stanna kvar i sista posen tills spelaren ber om något annat' },
+      namn: { type: 'string', description: L('kort namn, t.ex. honnor eller karatespark', 'short name, e.g. salute or karate_kick') },
+      beskrivning: { type: 'string', description: L('vad rörelsen föreställer, några ord', 'what the movement shows, a few words') },
+      loop: { type: 'boolean', description: L('upprepa rörelsen en stund (t.ex. för dans eller jubel)', 'repeat the movement for a while (e.g. for dancing or cheering)') },
+      hela_kroppen: { type: 'boolean', description: L('styr hela kroppen (ben, höjd, lutning); den vanliga animationen stängs av', 'control the whole body (legs, height, tilt); the normal animation is switched off') },
+      hall_kvar: { type: 'boolean', description: L('stanna kvar i sista posen tills spelaren ber om något annat', 'stay in the last pose until the player asks for something else') },
       nyckelbilder: {
         type: 'array',
         items: { type: 'object', properties: { tid: { type: 'number' }, ...jointProps }, required: ['tid'] },
@@ -1133,7 +1176,7 @@ Exempel (vinka med höger hand): {"namn":"vinka_glatt","beskrivning":"vinkar gla
 
 export const PLAY_MOTION_TOOL = {
   name: 'spela_rorelse',
-  description: 'Gör en rörelse som redan finns (färdig eller tidigare skapad med skapa_rorelse). Namnen står i systemprompten.',
+  description: L('Gör en rörelse som redan finns (färdig eller tidigare skapad med skapa_rorelse). Namnen står i systemprompten.', 'Perform a movement that already exists (ready-made or created earlier with skapa_rorelse). The names are listed in the system messages.'),
   input_schema: {
     type: 'object',
     properties: { namn: { type: 'string' } },

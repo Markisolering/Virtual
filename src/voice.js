@@ -1,13 +1,15 @@
 import { Capacitor } from '@capacitor/core';
 import { SpeechRecognition as NativeSTT } from '@capacitor-community/speech-recognition';
 import { TextToSpeech as NativeTTS } from '@capacitor-community/text-to-speech';
+import { speechLang } from './i18n.js';
 
 // Röst in och ut. I webbläsaren används Web Speech API; i Android-appen (Capacitor) saknar webbvyn
 // det, så där används telefonens egen taligenkänning och talsyntes via två plugins.
 
 const native = Capacitor.isNativePlatform();
 const WebSTT = window.SpeechRecognition || window.webkitSpeechRecognition;
-const LANG = 'sv-SE';
+const LANG = speechLang; // sv-SE eller en-US beroende på appens språk
+const LANG_RE = new RegExp(`^${LANG.slice(0, 2)}`, 'i');
 
 // Ta bort sådant som inte ska läsas upp: *handlingar*, emojis och överblivna tecken
 export function speakable(text) {
@@ -172,12 +174,12 @@ export const voice = {
   // ---------- Tala ----------
   _webVoices: [],
 
-  // Svenska röster att välja mellan i inställningarna: [{ id, name }]
+  // Röster på appens språk att välja mellan i inställningarna: [{ id, name }]
   async voices() {
     if (native) {
       try {
         const { voices } = await NativeTTS.getSupportedVoices();
-        return voices.map((v, i) => ({ id: String(i), name: v.name, lang: v.lang })).filter((v) => /^sv/i.test(v.lang));
+        return voices.map((v, i) => ({ id: String(i), name: v.name, lang: v.lang })).filter((v) => LANG_RE.test(v.lang));
       } catch {
         return [];
       }
@@ -193,7 +195,7 @@ export const voice = {
       list = speechSynthesis.getVoices();
     }
     this._webVoices = list;
-    return list.filter((v) => /^sv/i.test(v.lang)).map((v) => ({ id: v.name, name: v.name, lang: v.lang }));
+    return list.filter((v) => LANG_RE.test(v.lang)).map((v) => ({ id: v.name, name: v.name, lang: v.lang }));
   },
 
   // Läser upp texten. onStart anropas när rösten börjar; löftet uppfylls när den har slutat.
@@ -235,10 +237,10 @@ export const voice = {
       u.rate = rate;
       u.pitch = pitch;
       try {
-        const pickVoice = (this._webVoices.length ? this._webVoices : speechSynthesis.getVoices()).find((v) => (voiceId ? v.name === voiceId : /^sv/i.test(v.lang)));
+        const pickVoice = (this._webVoices.length ? this._webVoices : speechSynthesis.getVoices()).find((v) => (voiceId ? v.name === voiceId && LANG_RE.test(v.lang) : LANG_RE.test(v.lang)));
         if (pickVoice) u.voice = pickVoice;
       } catch {
-        // Ogiltig röst: använd webbläsarens standardröst för svenska
+        // Ogiltig röst: använd webbläsarens standardröst för språket
       }
       u.onstart = () => onStart?.();
       u.onboundary = (e) => {

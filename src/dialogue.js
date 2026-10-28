@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { ACTION_TOOL, EMOTION_TOOL, EMOTIONS, CLOTHES_TOOL, INTERACT_TOOL, validCommand, validClothes, validInteraction, commandResultText } from './commands.js';
 import { MOTION_TOOL, PLAY_MOTION_TOOL, cleanMotion, findMotion, saveMotion, motionNames } from './motion.js';
 import { motionGuide, motionLessons } from './learning.js';
+import { en, L } from './i18n.js';
+import { OfflineBrainEn, systemPromptEn, situationEn } from './dialogue-en.js';
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -51,7 +53,7 @@ const JOKES = [
   'Min kompis är så lat att han har en fjärrkontroll till sin fjärrkontroll.',
 ];
 
-export class OfflineBrain {
+class OfflineBrainSv {
   reply(ch, text, world) {
     const p = ch.persona;
     const st = STYLE[p.personality.id];
@@ -94,8 +96,8 @@ export class OfflineBrain {
         break;
       case 'job':
         out = pick([`Jag är ${p.job} ${p.jobDetail}${st.end}${f()}`, `Jag jobbar som ${p.job}, ${p.jobDetail}${st.end}`]);
-        if (p.job === 'student') out = `Jag är student och läser filosofi${st.end} Mest läser jag om varför jag läser filosofi.`;
-        if (p.job === 'pensionär') out = `Jag är pensionär nu, ${p.jobDetail}${st.end} Nu har jag all tid i världen.`;
+        if (p.jobKey === 'student') out = `Jag är student och läser filosofi${st.end} Mest läser jag om varför jag läser filosofi.`;
+        if (p.jobKey === 'pensionär') out = `Jag är pensionär nu, ${p.jobDetail}${st.end} Nu har jag all tid i världen.`;
         break;
       case 'age':
         out = p.personality.id === 'grinig' || p.personality.id === 'charmig' ? `Man frågar inte sånt${st.end} Men okej, ${p.age}.` : `Jag är ${p.age} år${st.end}${f()}`;
@@ -189,6 +191,9 @@ export class OfflineBrain {
   }
 }
 
+// Den inbyggda samtalsmotorn på appens språk
+export const OfflineBrain = en ? OfflineBrainEn : OfflineBrainSv;
+
 function cap(s) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -219,6 +224,7 @@ export function saveSettings(s) {
 // ändras under samtalet – var personen är, vilka som finns i rummet, nya lärdomar – skickas i stället
 // som korta systemmeddelanden efter spelarens repliker (se situation()).
 function systemPrompt(ch) {
+  if (en) return systemPromptEn(ch, motionGuide());
   const p = ch.persona;
   return `Du spelar en rollfigur i ett 3D-spel i förstapersonsperspektiv. Spelaren har gått fram till dig i ett möblerat vardagsrum och pratar med dig.
 
@@ -256,6 +262,7 @@ ${motionGuide()}`;
 
 // Det som kan ändras under samtalet. Skickas bara när något har ändrats sedan förra gången.
 function situation(ch, world, first) {
+  if (en) return situationEn(ch, world, first, { motionNames: motionNames(), lessons: motionLessons(), lessonsSent: ch.lessonsSent });
   const p = ch.persona;
   const others = world.characters.filter((c) => c !== ch).map((c) => `${c.persona.firstName} (${c.persona.job})`);
   const where = ch.following
@@ -360,7 +367,7 @@ export class ClaudeBrain {
     if (final.stop_reason === 'refusal') {
       // Ta bort spelarens meddelande så att historiken förblir giltig
       restore();
-      return { text: 'Hmm, det vill jag inte prata om. Kan vi ta något annat?', outcomes: [] };
+      return { text: L('Hmm, det vill jag inte prata om. Kan vi ta något annat?', 'Hmm, I’d rather not talk about that. Can we talk about something else?'), outcomes: [] };
     }
     // Spara hela svaret (inklusive tänkande-block) så att nästa anrop bygger vidare på samma historik
     ch.history.push({ role: 'assistant', content: final.content });
@@ -374,7 +381,7 @@ export class ClaudeBrain {
         const name = String(block.input?.namn || '').toLowerCase().trim().replace(/[^a-z0-9åäö_]+/g, '_').slice(0, 40);
         const motion = final.stop_reason === 'max_tokens' ? null : creating ? cleanMotion(block.input) : findMotion(name);
         if (!motion || !name) {
-          results.push({ type: 'tool_result', tool_use_id: block.id, content: creating ? 'Rörelsen gick inte att tolka; kontrollera nyckelbilderna.' : `Rörelsen "${name}" finns inte.`, is_error: true });
+          results.push({ type: 'tool_result', tool_use_id: block.id, content: creating ? L('Rörelsen gick inte att tolka; kontrollera nyckelbilderna.', 'The movement could not be parsed; check the keyframes.') : L(`Rörelsen "${name}" finns inte.`, `The movement "${name}" does not exist.`), is_error: true });
           continue;
         }
         if (creating) saveMotion(name, motion);
@@ -387,14 +394,14 @@ export class ClaudeBrain {
       if (block.name === EMOTION_TOOL.name) {
         const emotion = final.stop_reason !== 'max_tokens' && EMOTIONS[block.input?.kansla];
         if (emotion) feel(emotion);
-        results.push({ type: 'tool_result', tool_use_id: block.id, content: emotion ? 'Syns i ansiktet.' : 'Okänd känsla.', ...(emotion ? {} : { is_error: true }) });
+        results.push({ type: 'tool_result', tool_use_id: block.id, content: emotion ? L('Syns i ansiktet.', 'Shown on your face.') : L('Okänd känsla.', 'Unknown emotion.'), ...(emotion ? {} : { is_error: true }) });
         continue;
       }
       // Med strömmade verktygsargument kan indata vara ofullständig; kontrollera den innan något körs
       const validate = block.name === CLOTHES_TOOL.name ? validClothes : block.name === INTERACT_TOOL.name ? validInteraction : validCommand;
       const cmd = final.stop_reason === 'max_tokens' ? null : validate(block.input);
       if (!cmd) {
-        results.push({ type: 'tool_result', tool_use_id: block.id, content: 'Ogiltig handling, inget hände.', is_error: true });
+        results.push({ type: 'tool_result', tool_use_id: block.id, content: L('Ogiltig handling, inget hände.', 'Invalid action, nothing happened.'), is_error: true });
         continue;
       }
       const res = execute(cmd);
@@ -421,11 +428,11 @@ function stripThinking(history) {
 
 // Sista utvägen: ny historik med en kort sammanfattning av samtalet hittills plus spelarens nya replik
 function restartWithSummary(ch, text, world) {
-  const lines = (ch.transcript || []).slice(-14, -1).map(([t, who]) => `${who === 'me' ? 'Spelaren' : 'Du'}: ${t}`);
+  const lines = (ch.transcript || []).slice(-14, -1).map(([t, who]) => `${who === 'me' ? L('Spelaren', 'Player') : L('Du', 'You')}: ${t}`);
   ch.history.length = 0;
   ch.pendingToolResults = [];
   ch.systemPrompt = systemPrompt(ch);
-  const intro = lines.length ? `(Samtalet hittills:\n${lines.join('\n')})\n\n` : '';
+  const intro = lines.length ? `(${L('Samtalet hittills', 'The conversation so far')}:\n${lines.join('\n')})\n\n` : '';
   ch.history.push({ role: 'user', content: [{ type: 'text', text: intro + text }] });
   ch.history.push({ role: 'system', content: situation(ch, world, true) });
 }

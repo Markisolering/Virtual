@@ -3,6 +3,8 @@
 
 import { PRESETS, savedMotions } from './motion.js';
 import { COLORS, PARTS } from './clothes.js';
+import { en, L } from './i18n.js';
+import { parseCommandEn, commandReplyEn, commandResultTextEn } from './commands-en.js';
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -48,7 +50,7 @@ export const PLACES = {
   dorren: { name: 'dörren', poi: 'dörren', re: /dörr|hallen/ },
 };
 // Ordningen spelar roll: "läsfåtöljen" måste testas före "fåtöljen"
-const PLACE_ORDER = ['lasfatoljen', 'fatoljen', 'soffbordet', 'soffan', 'golvet', 'kylskapet', 'koket', 'matbordet', 'fonstret', 'tv', 'bokhyllan', 'skivspelaren', 'tavlan', 'dorren'];
+export const PLACE_ORDER = ['lasfatoljen', 'fatoljen', 'soffbordet', 'soffan', 'golvet', 'kylskapet', 'koket', 'matbordet', 'fonstret', 'tv', 'bokhyllan', 'skivspelaren', 'tavlan', 'dorren'];
 
 // Gester: animationsklipp, om de fungerar sittande, och hur länge loopande klipp spelas
 export const GESTURES = {
@@ -70,16 +72,20 @@ export const ACTIONS = ['satt_dig', 'lagg_dig', 'sitt_pa', 'res_dig', 'ga_till',
 // Verktyget som Claude får använda för att göra saker i rummet
 export const ACTION_TOOL = {
   name: 'gor_handling',
-  description:
+  description: L(
     'Utför en fysisk handling i rummet. Använd verktyget när spelaren ber dig göra något (sätta dig, gå någonstans, följa med, dansa, vinka osv.) och du går med på det, eller när du själv väljer att lämna rummet. Skriv först en kort replik och anropa sedan verktyget. Platsen anges bara för satt_dig och ga_till; annars "ingen".',
+    'Perform a physical action in the room. Use the tool when the player asks you to do something (sit down, go somewhere, come along, dance, wave etc.) and you agree, or when you choose to leave the room yourself. Write a short line first, then call the tool. The place (plats) is only given for satt_dig, lagg_dig, sitt_pa and ga_till; otherwise "ingen". Places: soffan = sofa, lasfatoljen = reading chair, fatoljen = armchair, soffbordet = coffee table, matbordet = dining table, golvet = floor, koket = kitchen, kylskapet = fridge, fonstret = window, tv = TV, bokhyllan = bookcase, skivspelaren = record player, tavlan = painting, dorren = door.',
+  ),
   input_schema: {
     type: 'object',
     properties: {
       handling: {
         type: 'string',
         enum: ACTIONS,
-        description:
+        description: L(
           'satt_dig, lagg_dig (lägg dig på golvet, i soffan, på matbordet eller soffbordet; personen går dit, sätter sig på kanten och lägger sig), sitt_pa (sätt dig uppe på matbordet eller soffbordet), res_dig (ställ dig upp, även från golvet eller ett bord), ga_till (gå till en plats), kom_hit (gå fram till spelaren), folj_mig (följ efter spelaren), sluta_folja, stanna (stanna där du är), lamna_rummet, eller en gest: vinka, dansa, klappa, jubla, skratta, rycka_pa_axlarna, stracka_pa_sig, gaspa, sitt_pa_huk, ta_foto, fundera',
+          'satt_dig (sit down), lagg_dig (lie down on the floor, the sofa, the dining table or the coffee table; you walk there, sit on the edge and lie down), sitt_pa (sit up on the dining table or coffee table), res_dig (stand up, also from the floor or a table), ga_till (go to a place), kom_hit (come to the player), folj_mig (follow the player), sluta_folja (stop following), stanna (stay where you are), lamna_rummet (leave the room), or a gesture: vinka (wave), dansa (dance), klappa (clap), jubla (cheer), skratta (laugh), rycka_pa_axlarna (shrug), stracka_pa_sig (stretch), gaspa (yawn), sitt_pa_huk (crouch), ta_foto (take a photo), fundera (think)',
+        ),
       },
       plats: { type: 'string', enum: [...Object.keys(PLACES), 'ingen'] },
     },
@@ -176,6 +182,7 @@ function parseInteraction(t, others) {
 // Tolka en uppmaning på svenska. Returnerar null om texten inte ber personen göra något.
 // others = förnamnen på de andra i rummet
 export function parseCommand(raw, others = []) {
+  if (en) return parseCommandEn(raw, others);
   const t = raw.toLowerCase().replace(/[!?.,]/g, ' ');
   // Frågor om vanor ("gillar du att dansa?") ska inte tolkas som uppmaningar
   if (/\b(gillar|brukar|tycker|har) du\b/.test(t)) return null;
@@ -290,6 +297,7 @@ const FAIL = {
 };
 
 export function commandReply(persona, cmd, result) {
+  if (en) return commandReplyEn(persona, cmd, result);
   const place = cmd.place ? PLACES[cmd.place] : null;
   if (!result.ok) return FAIL[result.reason]?.(place?.name, place?.at) || 'Det går inte just nu.';
   const yes = cmd.action === 'lamna_rummet' ? '' : `${pick(YES[persona.personality.id] || YES.vänlig)} `;
@@ -298,6 +306,7 @@ export function commandReply(persona, cmd, result) {
 
 // Text som Claude får tillbaka om hur det gick
 export function commandResultText(cmd, result) {
+  if (en) return commandResultTextEn(cmd, result);
   if (result.ok && cmd.action === 'byt_klader') return `Klart: kläderna har bytt färg (${cmd.clothes ? PARTS.map((k) => `${k}: ${cmd.clothes[k] || 'samma'}`).join(', ') : 'slumpade färger'}).`;
   if (result.ok && cmd.action === 'interagera') return `Klart: du går fram till ${cmd.person} och ni gör ${cmd.kind} tillsammans en stund.`;
   if (result.ok && cmd.action === 'rorelse') return `Klart: rörelsen ${cmd.name || ''} spelas upp${cmd.saved ? ' och är sparad' : ''}.`;
@@ -310,7 +319,10 @@ export const EMOTIONS = { glad: 'happy', skrattar: 'laugh', ledsen: 'sad', arg: 
 
 export const EMOTION_TOOL = {
   name: 'visa_kansla',
-  description: 'Visa en känsla i ansiktet medan du säger din replik. Använd när din känsla tydligt syns eller ändras (inte i varje replik).',
+  description: L(
+    'Visa en känsla i ansiktet medan du säger din replik. Använd när din känsla tydligt syns eller ändras (inte i varje replik).',
+    'Show an emotion on your face while you say your line. Use it when your feeling clearly shows or changes (not in every line). glad = happy, skrattar = laughing, ledsen = sad, arg = angry, forvanad = surprised, fundersam = thoughtful, trott = tired.',
+  ),
   input_schema: {
     type: 'object',
     properties: { kansla: { type: 'string', enum: Object.keys(EMOTIONS) } },
@@ -326,8 +338,10 @@ const CLOTH_CHOICES = [...Object.keys(COLORS), 'behall', 'original'];
 
 export const CLOTHES_TOOL = {
   name: 'byt_klader',
-  description:
+  description: L(
     'Byt kläder (färga om dem) när spelaren ber om det. Plaggen kan inte bytas mot andra plagg, men överdel (tröja/skjorta/klänning), underdel (byxor/kjol) och skor kan få en ny färg. "behall" = behåll som nu, "original" = de ursprungliga kläderna.',
+    'Change clothes (recolour them) when the player asks. Garments cannot be swapped for other garments, but overdel (top: sweater/shirt/dress), underdel (bottoms: trousers/skirt) and skor (shoes) can get a new colour. Colours are given in Swedish: vinröd = burgundy, marinblå = navy, ljusblå = light blue, mörkgrön = dark green, röd = red, rosa = pink, gul = yellow, grön = green, turkos = turquoise, blå = blue, lila = purple, brun = brown, vit = white, grå = grey, svart = black. "behall" = keep as is, "original" = the original clothes.',
+  ),
   input_schema: {
     type: 'object',
     properties: Object.fromEntries(PARTS.map((p) => [p, { type: 'string', enum: CLOTH_CHOICES }])),
@@ -347,16 +361,18 @@ export function validClothes(input) {
 
 export const INTERACT_TOOL = {
   name: 'interagera',
-  description:
+  description: L(
     'Gör något tillsammans med en annan person i rummet när spelaren ber om det: kram, high_five, skaka_hand, dansa (tillsammans), prata (ni pratar med varandra; skriv replikerna), satt_bredvid (sätt dig bredvid personen som sitter), ga_fram (gå fram till personen). Du går själv fram till den andra. Skriv först en kort replik till spelaren.',
+    'Do something together with another person in the room when the player asks: kram (hug), high_five, skaka_hand (shake hands), dansa (dance together), prata (you talk to each other; write the lines), satt_bredvid (sit next to the person who is sitting), ga_fram (walk up to the person). You walk over to the other person yourself. Write a short line to the player first.',
+  ),
   input_schema: {
     type: 'object',
     properties: {
-      person: { type: 'string', description: 'Förnamnet på den andra personen (se "Andra i rummet")' },
+      person: { type: 'string', description: L('Förnamnet på den andra personen (se "Andra i rummet")', 'The other person’s first name (see "Others in the room")') },
       handling: { type: 'string', enum: INTERACTION_KINDS },
       repliker: {
         type: 'array',
-        description: 'Bara för prata: 2–6 korta repliker som ni säger till varandra, i tur och ordning (annars tom lista). vem = jag (du) eller den_andra.',
+        description: L('Bara för prata: 2–6 korta repliker som ni säger till varandra, i tur och ordning (annars tom lista). vem = jag (du) eller den_andra.', 'Only for prata: 2–6 short lines you say to each other, in order (otherwise an empty list). vem = jag (you) or den_andra (the other person).'),
         items: {
           type: 'object',
           properties: { vem: { type: 'string', enum: ['jag', 'den_andra'] }, text: { type: 'string' } },

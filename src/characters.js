@@ -22,7 +22,7 @@ const WALK_CLIP_SPEED = 1.21;
 const HOLD_TIME = 90;
 // Munformer (Oculus-visem) i de detaljerade modellerna
 // Ansiktsuttryck som blandningar av ARKit-former
-const EXPRESSIONS = {
+export const EXPRESSIONS = {
   neutral: {},
   happy: { AK_44_MouthSmileLeft: 0.75, AK_45_MouthSmileRight: 0.75, AK_07_CheekSquintLeft: 0.4, AK_08_CheekSquintRight: 0.4, AK_19_EyeSquintLeft: 0.2, AK_20_EyeSquintRight: 0.2 },
   laugh: { AK_44_MouthSmileLeft: 1, AK_45_MouthSmileRight: 1, AK_07_CheekSquintLeft: 0.7, AK_08_CheekSquintRight: 0.7, AK_19_EyeSquintLeft: 0.5, AK_20_EyeSquintRight: 0.5, AK_25_JawOpen: 0.25, AK_03_BrowInnerUp: 0.2 },

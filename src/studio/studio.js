@@ -5,13 +5,15 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { Character, library } from '../characters.js';
+import { Character, library, EXPRESSIONS } from '../characters.js';
 import { loadSettings, saveSettings } from '../dialogue.js';
 import { voice, speakable } from '../voice.js';
 import { subdivide, curvature } from './subdivide.js';
 import { makeSkinMaterial, sampleSkinTone, skinParams } from './skin.js';
 import { cutEyes, buildEye } from './eyes.js';
 import { makeHairMaterial } from './hair.js';
+import { loadScanHead } from './scanhead.js';
+import { t, locale, translateDom } from '../i18n.js';
 
 // Huvudstudion: ett separat testläge med en egen renderare för så realistiska huvuden som möjligt.
 // Inget rum, bara ett huvud i ett fotostudioljus. Allt som förbättrar huvudet kan slås av och på
@@ -20,7 +22,8 @@ import { makeHairMaterial } from './hair.js';
 
 const $ = (id) => document.getElementById(id);
 const settings = { ...loadSettings() };
-const opts = { level: 2, skin: true, eyes: true, hair: true, light: 'studio', ao: true };
+// model: 'scan' = skannat huvud (ICT-FaceKit), 'game' = spelets närbildsmodeller
+const opts = { model: settings.studioModel === 'game' ? 'game' : 'scan', level: 2, skin: true, eyes: true, hair: true, light: 'studio', ao: true };
 
 // ---------------- Renderare ----------------
 const canvas = $('game');
@@ -106,10 +109,15 @@ function placeLights(head) {
   ]) {
     light.position.set(head.x + x, head.y + y, head.z + z);
     light.target.position.copy(head);
-    light.intensity = intensity;
+    light.intensity = intensity * (opts.model === 'scan' ? 0.4 : 1);
     light.color.set(color);
   }
-  scene.environmentIntensity = p.env;
+  scene.environmentIntensity = p.env * (opts.model === 'scan' ? 0.6 : 1);
+  // Det skannade huvudets hudfärger är fysikaliskt rimliga (verklig reflektans); spelets texturer har
+  // inbakade skuggor och tål starkare ljus
+  renderer.toneMappingExposure = opts.model === 'scan' ? 0.9 : 0.82;
+  // Neutral tonmappning behåller hudens färgmättnad bättre än AgX
+  renderer.toneMapping = opts.model === 'scan' ? THREE.NeutralToneMapping : THREE.AgXToneMapping;
 }
 
 // ---------------- Efterbehandling ----------------
@@ -172,8 +180,37 @@ function meshesOf(c) {
   return list;
 }
 
+// ---------------- Skannat huvud ----------------
+let scan = null;
+let scanLoading = null;
+async function newScanPerson() {
+  status(t('Skapar en ny person…'));
+  await new Promise((r) => setTimeout(r, 30));
+  if (!scan) {
+    scanLoading ||= loadScanHead();
+    scan = await scanLoading;
+    scene.add(scan.root);
+  }
+  if (person) person.root.visible = false;
+  scan.root.visible = true;
+  await scan.newPerson(renderer);
+  cam.ready = false;
+  status('');
+  updateInfo();
+}
+
+function showModel() {
+  if (opts.model === 'scan') return newScanPerson();
+  if (scan) scan.root.visible = false;
+  if (person) {
+    person.root.visible = true;
+    return applyOptions();
+  }
+  return loadPerson(library.pickEntry());
+}
+
 async function loadPerson(entry) {
-  status('Laddar person…');
+  status(t('Laddar person…'));
   const asset = await library.create(entry);
   const c = new Character(Date.now() % 1000, asset);
   if (!c.bones.eyes.length) {
@@ -189,6 +226,7 @@ async function loadPerson(entry) {
   original.clear();
   cache.clear();
   person = c;
+  if (scan) scan.root.visible = false;
   c.position.set(0, 0, 0);
   c.heading = 0;
   c.root.rotation.y = 0;
@@ -208,8 +246,8 @@ async function loadPerson(entry) {
 // Bygg huvudet enligt inställningarna (polygoner, hud, ögon, hår)
 async function applyOptions() {
   const c = person;
-  if (!c) return;
-  status('Räknar fram huvudet…');
+  if (!c || opts.model === 'scan') return;
+  status(t('Räknar fram huvudet…'));
   await new Promise((r) => setTimeout(r, 30));
   // Ta bort tidigare ögon
   for (const b of c.bones.eyes) for (const ch of [...b.children]) if (ch.name === 'studio-eye') b.remove(ch);
@@ -255,9 +293,10 @@ async function applyOptions() {
 // ---------------- Kamera ----------------
 const cam = { yaw: 0.25, pitch: 0.05, dist: 0.85, target: new THREE.Vector3(), ready: false };
 function updateCamera(dt) {
-  if (!person) return;
-  const head = person.headWorld();
-  const aim = head.clone().add(new THREE.Vector3(0, 0.07, 0));
+  const useScan = opts.model === 'scan' && scan;
+  if (!useScan && !person) return;
+  const head = useScan ? scan.root.localToWorld(new THREE.Vector3(0, 0.035, 0.02)) : person.headWorld();
+  const aim = useScan ? head.clone() : head.clone().add(new THREE.Vector3(0, 0.07, 0));
   if (!cam.ready) {
     cam.target.copy(aim);
     cam.ready = true;
@@ -317,6 +356,9 @@ function buildUi() {
       <button type="button" id="studio-panel-btn" aria-label="Inställningar">⚙︎</button>
     </div>
     <div class="studio-panel" id="studio-panel" hidden>
+      <label>Modell
+        <select id="st-model"><option value="scan">Skannat huvud (ICT-FaceKit)</option><option value="game">Spelets personer (Rocketbox)</option></select>
+      </label>
       <label>Polygoner
         <select id="st-level"><option value="0">Original</option><option value="1">×4</option><option value="2">×16 (max)</option></select>
       </label>
@@ -339,13 +381,25 @@ function buildUi() {
     </div>
     <div class="studio-update" id="studio-update" hidden><span>En ny version finns.</span><button type="button" id="studio-update-btn">Uppdatera</button></div>`;
   document.body.appendChild(ui);
+  translateDom(ui);
   document.body.classList.add('studio-mode');
 
   $('studio-back').onclick = () => {
     saveSettings({ ...loadSettings(), mode: 'head' });
     location.reload();
   };
-  $('studio-next').onclick = () => loadPerson(library.pickEntry()).catch((e) => status(`Kunde inte ladda: ${e.message}`));
+  $('studio-next').onclick = () => (opts.model === 'scan' ? newScanPerson() : loadPerson(library.pickEntry())).catch((e) => status(t('Kunde inte ladda: {error}', { error: e.message })));
+  $('st-model').value = opts.model;
+  const gameOnly = ['st-level', 'st-eyes', 'st-hair', 'st-compare'].map((id) => $(id).closest('label') || $(id));
+  const showGameOnly = () => gameOnly.forEach((el) => (el.hidden = opts.model === 'scan'));
+  showGameOnly();
+  $('st-model').onchange = (e) => {
+    opts.model = e.target.value;
+    saveSettings({ ...loadSettings(), studioModel: opts.model });
+    showGameOnly();
+    cam.ready = false;
+    showModel().catch((err) => status(t('Kunde inte ladda: {error}', { error: err.message })));
+  };
   $('studio-panel-btn').onclick = () => ($('studio-panel').hidden = !$('studio-panel').hidden);
   $('st-level').value = String(opts.level);
   $('st-skin').checked = opts.skin;
@@ -379,7 +433,10 @@ function buildUi() {
   $('st-light').onchange = (e) => (opts.light = e.target.value);
   const base = skinParams.scatter.value.clone();
   $('st-scatter').oninput = (e) => skinParams.scatter.value.copy(base).multiplyScalar(Number(e.target.value));
-  $('st-pores').oninput = (e) => (skinParams.detail.value = Number(e.target.value));
+  $('st-pores').oninput = (e) => {
+    skinParams.detail.value = Number(e.target.value);
+    scan?.materials.skin?.normalScale.setScalar(skinParams.detail.value / 0.35);
+  };
   // Jämför: håll in för att se originalet
   const compare = $('st-compare');
   let saved = null;
@@ -413,18 +470,19 @@ function buildUi() {
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = label;
-    b.onclick = () => person?.setExpression(expr, 4);
+    b.onclick = () => (opts.model === 'scan' ? scan?.setExpression(expr, 4) : person?.setExpression(expr, 4));
     chips.appendChild(b);
   }
   $('studio-say').onsubmit = (e) => {
     e.preventDefault();
-    const text = $('studio-text').value.trim() || 'Hej! Jag heter Saga. Visst ser jag verklig ut? Titta på mina ögon.';
+    const text = $('studio-text').value.trim() || t('Hej! Jag heter Saga. Visst ser jag verklig ut? Titta på mina ögon.');
     $('studio-text').value = '';
     say(text);
   };
 }
 
 async function say(text) {
+  if (opts.model === 'scan') return sayScan(text);
   const c = person;
   if (!c) return;
   const rate = settings.voiceRate || 1;
@@ -444,6 +502,18 @@ async function say(text) {
   }
 }
 
+async function sayScan(text) {
+  if (!scan) return;
+  const rate = settings.voiceRate || 1;
+  const spoken = speakable(text);
+  const talk = () => scan.speak(spoken, rate);
+  talk();
+  if (voice.canSpeak() && settings.replyMode !== 'text') {
+    await voice.speak(text, { rate, pitch: 1, voiceId: settings.voiceName || '', onStart: talk, onWord: (i) => scan.face.onWord(i) });
+    scan.face.stop();
+  }
+}
+
 function status(text) {
   const el = $('studio-status');
   if (el) {
@@ -454,10 +524,11 @@ function status(text) {
 
 function updateInfo() {
   const el = $('studio-info');
-  if (!el || !person) return;
+  if (!el) return;
   let tris = 0;
-  for (const m of meshesOf(person)) tris += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
-  el.textContent = `${Math.round(tris).toLocaleString('sv-SE')} trianglar · upplösning ${dpr.toFixed(2)}× · ${fps.toFixed(0)} bilder/s`;
+  if (opts.model === 'scan' && scan) tris = scan.geometry.index.count / 3;
+  else if (person) for (const m of meshesOf(person)) tris += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
+  el.textContent = t('{tris} trianglar · upplösning {dpr}× · {fps} bilder/s', { tris: Math.round(tris).toLocaleString(locale), dpr: dpr.toFixed(2), fps: fps.toFixed(0) });
 }
 
 // ---------------- Uppdateringar (samma service worker som spelet) ----------------
@@ -489,8 +560,16 @@ let fpsTime = 0;
 let fpsFrames = 0;
 const timer = new THREE.Timer();
 let paused = false; // för tester: rendera en bild i taget med renderOnce()
+function updateSubject(dt) {
+  if (opts.model === 'scan') {
+    if (scan) {
+      scan.lookAt = camera.position;
+      scan.update(dt, EXPRESSIONS);
+    }
+  } else if (person) person.update(dt, world);
+}
 function renderOnce(dt = 1 / 30) {
-  if (person) person.update(dt, world);
+  updateSubject(dt);
   updateCamera(dt);
   composer.render(dt);
 }
@@ -499,7 +578,7 @@ function loop(now) {
   if (paused) return;
   timer.update(now);
   const dt = Math.min(0.05, timer.getDelta());
-  if (person) person.update(dt, world);
+  updateSubject(dt);
   updateCamera(dt);
   film.uniforms.time.value = (now / 1000) % 100;
   composer.render(dt);
@@ -528,14 +607,14 @@ async function start() {
   library.dir = 'avatars-hq';
   library.initialCount = 1;
   library.avaturn = settings.people === 'avaturn';
-  status('Laddar…');
+  status(t('Laddar…'));
   await library.init();
-  await loadPerson(library.pickEntry());
+  await showModel();
   requestAnimationFrame(loop);
 }
 start().catch((err) => {
   console.error(err);
-  status(`Kunde inte starta studion: ${err.message}`);
+  status(t('Kunde inte starta studion: {error}', { error: err.message }));
 });
 
-window.__studio = { scene, camera, renderer, opts, applyOptions, cam, renderOnce, pause: (p = true) => (paused = p), get person() { return person; }, say, loadPerson, library };
+window.__studio = { scene, camera, renderer, opts, applyOptions, cam, renderOnce, pause: (p = true) => (paused = p), get person() { return person; }, get scan() { return scan; }, newScanPerson, say, loadPerson, library };

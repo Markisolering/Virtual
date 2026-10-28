@@ -11,7 +11,8 @@ const SHELL = `shell-${BUILD}`;
 const AVATARS = 'models-v1'; // hette så innan animationerna fick en egen cache
 const ANIMS = 'anims-v2';
 const AVATARS_HQ = 'avatars-hq-v1'; // närbildsmodellerna
-const KEEP = [SHELL, AVATARS, ANIMS, AVATARS_HQ];
+const SCANHEAD = 'scanhead-v1'; // huvudstudions skannade huvud (public/scanhead)
+const KEEP = [SHELL, AVATARS, ANIMS, AVATARS_HQ, SCANHEAD];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -70,7 +71,9 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== location.origin) return; // t.ex. anrop till Claude går alltid direkt till nätet
 
   const path = url.pathname;
-  if (path.includes('/avatars-hq/') && !path.endsWith('.json')) {
+  if (path.includes('/scanhead/')) {
+    event.respondWith(cacheFirst(req, SCANHEAD));
+  } else if (path.includes('/avatars-hq/') && !path.endsWith('.json')) {
     event.respondWith(cacheFirst(req, AVATARS_HQ));
   } else if (path.includes('/anims/')) {
     event.respondWith(cacheFirst(req, ANIMS));

@@ -58,6 +58,10 @@
 
     <div id="start">
       <div class="card">
+        <div id="lang-pick" class="lang-pick" role="group" aria-label="Språk / Language">
+          <button type="button" data-lang="sv">Svenska</button>
+          <button type="button" data-lang="en">English</button>
+        </div>
         <h1>Vardagsrummet</h1>
         <p class="lead">Ett möblerat rum där folk kommer och går. Gå fram till någon och börja prata.</p>
         <ul class="howto">
@@ -81,6 +85,12 @@
     <div id="settings" hidden>
       <div class="card">
         <h2>Inställningar</h2>
+        <label>Språk / Language
+          <select id="set-lang">
+            <option value="sv">Svenska</option>
+            <option value="en">English</option>
+          </select>
+        </label>
         <label>Grafikkvalitet
           <select id="set-quality">
             <option value="auto">Automatisk</option>

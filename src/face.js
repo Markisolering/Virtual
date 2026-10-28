@@ -5,6 +5,8 @@
 // varje ord börjar (onboundary i webbläsaren, onRangeStart i Android-appen), och då hoppar munnen
 // till just det ordet. Mellan munformerna tonas det över i förväg, som när man pratar på riktigt.
 
+import { en } from './i18n.js';
+
 const rand = (a, b) => a + Math.random() * (b - a);
 const smooth = (a, b, x) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -13,9 +15,67 @@ const smooth = (a, b, x) => {
 // Mjukt brus av några sinusvågor, för små rörelser som aldrig upprepar sig
 const noise = (t, seed) => Math.sin(t * 1.0 + seed) * 0.5 + Math.sin(t * 2.31 + seed * 1.7) * 0.3 + Math.sin(t * 4.07 + seed * 2.9) * 0.2;
 
-// Bokstäver -> munformer (Oculus-visem) för svenska, med ungefärlig längd i sekunder
+// Bokstäver -> munformer (Oculus-visem) för svenska, med ungefärlig längd i sekunder.
+// På engelska tolkas några vanliga bokstavskombinationer först (th, sh, ch, ee, oo, ow …).
+const EN_DIGRAPHS = [
+  ['tch', 'CH', 0.1],
+  ['sh', 'CH', 0.1],
+  ['ch', 'CH', 0.1],
+  ['th', 'TH', 0.08],
+  ['ph', 'FF', 0.07],
+  ['wh', 'U', 0.07],
+  ['qu', 'kk', 0.08],
+  ['ck', 'kk', 0.065],
+  ['ng', 'kk', 0.08],
+  ['ee', 'I', 0.12],
+  ['ea', 'I', 0.12],
+  ['oo', 'U', 0.12],
+  ['ou', 'O', 0.12],
+  ['ow', 'O', 0.12],
+  ['ai', 'E', 0.12],
+  ['ay', 'E', 0.12],
+  ['oy', 'O', 0.12],
+];
+function textToVisemesEn(t) {
+  const out = [];
+  for (let i = 0; i < t.length; i++) {
+    const d = EN_DIGRAPHS.find(([g]) => t.startsWith(g, i));
+    if (d) {
+      out.push([d[1], d[2], i]);
+      i += d[0].length - 1;
+      continue;
+    }
+    const c = t[i];
+    if (c === t[i - 1] && /[a-z]/.test(c)) continue;
+    // Stumt e i slutet av ord (make, time)
+    if (c === 'e' && /[a-z]/.test(t[i - 1] || '') && !/[a-z]/.test(t[i + 1] || '')) continue;
+    let v = null;
+    if (c === 'a') v = 'aa';
+    else if (c === 'e') v = 'E';
+    else if (c === 'i') v = 'I';
+    else if (c === 'y') v = 'I';
+    else if (c === 'o') v = 'O';
+    else if (c === 'u') v = 'U';
+    else if (c === 'w') v = 'U';
+    else if ('pbm'.includes(c)) v = 'PP';
+    else if ('fv'.includes(c)) v = 'FF';
+    else if ('tdl'.includes(c)) v = 'DD';
+    else if (c === 'n') v = 'nn';
+    else if ('kgqc'.includes(c)) v = 'kk';
+    else if ('szx'.includes(c)) v = 'SS';
+    else if (c === 'j') v = 'CH';
+    else if (c === 'r') v = 'RR';
+    if (v) out.push([v, ['aa', 'E', 'I', 'O', 'U'].includes(v) ? 0.1 : 0.065, i]);
+    else if ('.!?…'.includes(c)) out.push(['sil', 0.34, i]);
+    else if (',;:'.includes(c)) out.push(['sil', 0.2, i]);
+    else if (c === ' ') out.push(['sil', 0.035, i]);
+  }
+  return out;
+}
+
 export function textToVisemes(text) {
   const t = text.toLowerCase();
+  if (en) return textToVisemesEn(t.replace(/’/g, "'"));
   const out = [];
   for (let i = 0; i < t.length; i++) {
     const two = t.slice(i, i + 2);
@@ -64,7 +124,7 @@ export const VISEME_MORPH = Object.fromEntries(VISEMES.map((v, i) => [v, `AA_VI_
 // Hur mycket käken öppnas, och hur tydligt munformen visas
 const JAW = { aa: 0.34, E: 0.2, I: 0.11, O: 0.24, U: 0.13, RR: 0.12, CH: 0.07, SS: 0.05, DD: 0.1, nn: 0.07, kk: 0.12, TH: 0.07, FF: 0.03, PP: 0, sil: 0 };
 const STRENGTH = { PP: 1, FF: 0.9, aa: 0.9, O: 0.9, U: 0.9, E: 0.85, I: 0.85, CH: 0.85, SS: 0.7, TH: 0.7, DD: 0.65, nn: 0.6, kk: 0.55, RR: 0.6, sil: 0 };
-const NEGATIONS = /^(nej|nä|nää|inte|aldrig|ingen|inget|inga|knappast)$/;
+const NEGATIONS = en ? /^(no|nope|not|never|nothing|nobody|none|don't|can't|won't|isn't|didn't|hardly)$/ : /^(nej|nä|nää|inte|aldrig|ingen|inget|inga|knappast)$/;
 
 export class FaceAnimator {
   constructor(seed = 1) {
