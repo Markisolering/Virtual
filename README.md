@@ -168,6 +168,17 @@ Välj **Talking head** på startskärmen eller under ⚙︎ Inställningar → *
 - **Ett levande ansikte:** huvudet rör sig hela tiden lite, mer när personen pratar. Betonade ord ger en nick och höjda ögonbryn, en fråga ger en lutning på huvudet och ord som "nej" och "inte" en liten huvudskakning. Blinkningarna är snabba och kommer oftare i pauser. Blicken byter fixeringspunkt med små ryck och tittar bort när personen tänker på ett svar. Medan du pratar eller skriver lyssnar personen och nickar ibland.
 - Personer med täckt ansikte väljs bort automatiskt i det här läget.
 
+## Huvudstudio (test)
+
+Ett helt separat testläge med en egen renderare för så realistiska huvuden som möjligt (`src/studio/`). Välj **Huvudstudio (test)** på startskärmen eller under ⚙︎ → *Läge*; ← går tillbaka. Inget rum laddas, bara ett huvud i ett fotostudioljus. Dra för att vrida, nyp för att zooma ända in på ögat, 🔄 för en ny person, uttrycksknappar och ett textfält där personen säger det du skriver (med läppsynk).
+
+- **Många polygoner** (`subdivide.js`): Loop-subdivision delar varje triangel i fyra och jämnar ut ytan, två gånger för huvudet (ca 45 000 trianglar i stället för ca 3 400) och en gång för halsen och axlarna. UV, hudvikter och alla 40 ansiktsformer räknas om, så läppsynk och uttryck fungerar som förut.
+- **Hud** (`skin.js`): ljusspridning under ytan (rött sprids längst, mer där ytan är krökt), genomlysning i öron och näsvingar i motljus, diffust ljus mot en suddigare normalkarta, porer i en egen detaljkarta, två glanslager (fet yta och matt underlag) och lite sammetsglans. Bara det som har hudens färgton får hudljuset.
+- **Ögon** (`eyes.js`): modellens ögon ersätts av ögonglober med välvd, blank hornhinna. Irisen ligger bakom hornhinnan och ses genom den med ljusbrytning (index 1,376), så den får djup. Kanten runt irisen är mörkare och ovanlocket skuggar. Färgerna hämtas från modellens egen ögontextur.
+- **Hår** (`hair.js`): glansen löper längs stråna (anisotropi), mjuka kanter med alpha-to-coverage och sammetsglans i motljus.
+- **Ljus och bild**: studiomiljö med ljuslådor som reflexer, huvudljus med mjuka skuggor (VSM), fylljus och kantljus, fyra ljusinställningar (studio, fönster, dramatiskt, kväll), kontaktskuggor (GTAO), AgX-tonmappning, kantutjämning med 4× MSAA, lite objektivfärgfel, vinjett och filmkorn. Upplösningen sänks eller höjs automatiskt så att bilden flyter.
+- Allt kan slås av och på under ⚙︎, och **Håll in för att jämföra** visar originalet.
+
 ## Närbildsläge
 
 Välj **Närbild** på startskärmen (eller under ⚙︎ Inställningar → Läge). Då är det bara en eller två personer i rummet åt gången, och de visas i högre detalj:
@@ -217,5 +228,7 @@ src/interact.js     Personer som gör saker med varandra
 src/avaturn.js      Egna avatarer: Avaturns redigerare, uppladdning och lagring i IndexedDB
 src/retarget.js     För över posen från Rocketbox-skelettet till en avatar med standardskelett
 src/face.js         Ansiktet som pratar: läppsynk, huvudrörelser, ögonbryn, blinkningar och blick
+src/boot.js         Startfil: laddar huvudstudion eller spelet
+src/studio/         Huvudstudion: egen renderare med subdivision, hud, ögon och hår
 public/draco/       Draco-avkodare för komprimerade avatarer
 ```
