@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { en, L } from './i18n.js';
 import { findMotion, savedMotions, JOINT_HELP } from './motion.js';
 
 // Inlärning av rörelser utifrån spelarens betyg.
@@ -64,7 +65,7 @@ export function recordCorrection(name, correction) {
   const all = ratings();
   const r = { up: 0, close: 0, down: 0, notes: [], ...all[name] };
   r.corrections = [...(r.corrections || []), correction].slice(-4);
-  if (correction.note) r.notes = [...r.notes, `rättat: ${correction.note}`].slice(-6);
+  if (correction.note) r.notes = [...r.notes, `${L('rättat', 'corrected')}: ${correction.note}`].slice(-6);
   r.last = Date.now();
   all[name] = r;
   write(RATINGS, all);
@@ -95,10 +96,10 @@ export function motionGuide() {
   const lessons = motionLessons();
   const examples = bestExamples();
   const parts = [];
-  if (lessons.length) parts.push(`Lärdomar om rörelser (från spelarens betyg – följ dem när du skapar rörelser):\n${lessons.map((l) => `- ${l}`).join('\n')}`);
+  if (lessons.length) parts.push(`${L('Lärdomar om rörelser (från spelarens betyg – följ dem när du skapar rörelser)', 'Lessons about movements (from the player’s ratings – follow them when you create movements)')}:\n${lessons.map((l) => `- ${l}`).join('\n')}`);
   if (examples.length) {
     parts.push(
-      `Rörelser som spelaren har gett tummen upp eller själv rättat (använd som förebild för vinklar och tempo):\n${examples
+      `${L('Rörelser som spelaren har gett tummen upp eller själv rättat (använd som förebild för vinklar och tempo)', 'Movements the player has given a thumbs up or corrected themselves (use them as a model for angles and timing)')}:\n${examples
         .map(([name, def]) => `- ${name} (${def.beskrivning || name}): ${compact(def)}`)
         .join('\n')}`,
     );
@@ -110,7 +111,9 @@ export function motionGuide() {
 // Låter Claude sammanfatta betygen till konkreta, generella lärdomar om hur vinklarna ska sättas.
 let coachBusy = false;
 
-const GRADE_TEXT = { up: 'tummen upp (bra)', close: 'nästan (inte bra, men åt rätt håll – justera, gör inte om från början)', down: 'tummen ner (dålig)' };
+const GRADE_TEXT = en
+  ? { up: 'thumbs up (good)', close: 'almost (not good, but going the right way – adjust, do not start over)', down: 'thumbs down (bad)' }
+  : { up: 'tummen upp (bra)', close: 'nästan (inte bra, men åt rätt håll – justera, gör inte om från början)', down: 'tummen ner (dålig)' };
 
 export async function updateLessons(settings, name, grade, note, correction) {
   if (!settings.apiKey || coachBusy) return null;
@@ -130,22 +133,24 @@ ${Object.entries(JOINT_HELP)
   .join('\n')}
 
 Din uppgift: uppdatera listan med lärdomar utifrån spelarens senaste betyg, så att framtida rörelser blir bättre. Lärdomarna ska vara korta, konkreta och användbara (helst med vinklar och tempo), till exempel "Honnör: höger arm utåt ca 80, armbåge ca 135, handen vid pannan" eller "Gester blir naturligare med 0,3–0,5 s mellan nyckelbilder". Behåll bra gamla lärdomar, slå ihop dubletter, ta bort sådant som visat sig fel. Högst ${MAX_LESSONS} punkter.
-Svara bara med punktlistan, en lärdom per rad som börjar med "- ".`,
+Svara bara med punktlistan, en lärdom per rad som börjar med "- ".${en ? '\n\nWrite the lessons in English (the player reads them in an English app). Joint names stay as they are.' : ''}`,
       messages: [
         {
           role: 'user',
           content: `Nuvarande lärdomar:
-${motionLessons().map((l) => `- ${l}`).join('\n') || '(inga ännu)'}
+${motionLessons().map((l) => `- ${l}`).join('\n') || L('(inga ännu)', '(none yet)')}
 
 Rörelse: ${name} (${def.beskrivning || ''})
 ${compact(def)}
 
 ${
             correction
-              ? `Spelaren har själv rättat rörelsen i en redigerare genom att dra kroppsdelarna dit de ska. Rörelsen ovan är den RÄTTADE versionen – den är facit. Vid ${correction.tid} s ändrades: ${correction.andringar || '(små ändringar)'}.${correction.note ? ` Spelarens förklaring: "${correction.note}".` : ''} Dra generella slutsatser om var kroppsdelar finns (t.ex. vilka vinklar som behövs för att handen ska nå håret, ansiktet eller axeln).`
-              : `Spelarens betyg nu: ${GRADE_TEXT[grade]}${note ? `. Kommentar: ${note}` : ''}`
+              ? en
+                ? `The player corrected the movement themselves in an editor by dragging the body parts into place. The movement above is the CORRECTED version – it is the answer key. At ${correction.tid} s these changed: ${correction.andringar || '(small changes)'}.${correction.note ? ` The player’s explanation: "${correction.note}".` : ''} Draw general conclusions about where body parts are (e.g. which angles are needed for the hand to reach the hair, the face or the shoulder).`
+                : `Spelaren har själv rättat rörelsen i en redigerare genom att dra kroppsdelarna dit de ska. Rörelsen ovan är den RÄTTADE versionen – den är facit. Vid ${correction.tid} s ändrades: ${correction.andringar || '(små ändringar)'}.${correction.note ? ` Spelarens förklaring: "${correction.note}".` : ''} Dra generella slutsatser om var kroppsdelar finns (t.ex. vilka vinklar som behövs för att handen ska nå håret, ansiktet eller axeln).`
+              : `${L('Spelarens betyg nu', 'The player’s rating now')}: ${GRADE_TEXT[grade]}${note ? `. ${L('Kommentar', 'Comment')}: ${note}` : ''}`
           }
-Tidigare betyg för rörelsen: ${r.up || 0} bra, ${r.close || 0} nästan, ${r.down || 0} dåliga${r.notes?.length ? `, kommentarer: ${r.notes.join('; ')}` : ''}`,
+${L(`Tidigare betyg för rörelsen: ${r.up || 0} bra, ${r.close || 0} nästan, ${r.down || 0} dåliga`, `Earlier ratings for the movement: ${r.up || 0} good, ${r.close || 0} almost, ${r.down || 0} bad`)}${r.notes?.length ? `, ${L('kommentarer', 'comments')}: ${r.notes.join('; ')}` : ''}`,
         },
       ],
     });

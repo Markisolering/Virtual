@@ -18,6 +18,9 @@ import { PRESETS, findMotion, motionTitle, setWorld } from './motion.js';
 import { voice, speakable } from './voice.js';
 import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { t, en, lang, translateDom } from './i18n.js';
+
+translateDom();
 
 const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
@@ -213,7 +216,7 @@ async function spawnAtDoor() {
     c.heading = Math.PI / 2;
     c.root.rotation.y = c.heading;
     c.chooseNext(simWorld);
-    toast(`${c.name} kom in.`);
+    toast(t('{name} kom in.', { name: c.name }));
   } catch (err) {
     console.error('Kunde inte ladda en person', err);
   } finally {
@@ -422,7 +425,7 @@ $('next-person').addEventListener('click', async () => {
     await setupStage(c);
   } catch (err) {
     console.error(err);
-    toast('Kunde inte ladda en ny person.');
+    toast(t('Kunde inte ladda en ny person.'));
   }
 });
 
@@ -517,7 +520,7 @@ function tapAt(x, y) {
   if (!hits.length) return;
   const c = hits[0].object.userData.character;
   if (hits[0].distance > 4.5) {
-    toast(`Gå närmare för att prata med ${c.name}.`);
+    toast(t('Gå närmare för att prata med {name}.', { name: c.name }));
     return;
   }
   openChat(c);
@@ -634,7 +637,7 @@ function updateFocus() {
       focusLabel.classList.add('show');
       focusLabel.style.transform = `translate(${(h.x * 0.5 + 0.5) * innerWidth}px, ${(-h.y * 0.5 + 0.5) * innerHeight}px) translate(-50%, -100%)`;
       focusLabel.querySelector('.name').textContent = best.name;
-      focusLabel.querySelector('.hint').textContent = isTouch ? 'Tryck för att prata' : 'Tryck E för att prata';
+      focusLabel.querySelector('.hint').textContent = isTouch ? t('Tryck för att prata') : t('Tryck E för att prata');
     } else focusLabel.classList.remove('show');
   } else {
     focusLabel.classList.remove('show');
@@ -655,8 +658,10 @@ const log = $('chat-log');
 const talkbar = $('talkbar');
 const bubbleEl = $('speech-bubble');
 const heardEl = $('talk-heard');
-const QUICK = ['Hej!', 'Vad heter du?', 'Sätt dig i soffan', 'Följ mig', 'Dansa!', 'Kom hit', 'Gå till köket', 'Vinka', 'Hur mår du?', 'Vad jobbar du med?', 'Berätta något om dig', 'Hej då!'];
-const PLACEHOLDER = 'Säg något eller be om något…';
+const QUICK = en
+  ? ['Hi!', "What's your name?", 'Sit on the sofa', 'Follow me', 'Dance!', 'Come here', 'Go to the kitchen', 'Wave', 'How are you?', 'What do you do?', 'Tell me about yourself', 'Bye!']
+  : ['Hej!', 'Vad heter du?', 'Sätt dig i soffan', 'Följ mig', 'Dansa!', 'Kom hit', 'Gå till köket', 'Vinka', 'Hur mår du?', 'Vad jobbar du med?', 'Berätta något om dig', 'Hej då!'];
+const PLACEHOLDER = t('Säg något eller be om något…');
 const compactView = () => settings.view !== 'chat';
 const showText = () => settings.replyMode !== 'voice';
 const useVoice = () => settings.replyMode !== 'text' && voice.canSpeak();
@@ -740,8 +745,8 @@ function openChat(c) {
   pointers.clear();
   joyId = null;
   $('chat-name').textContent = `${c.persona.firstName} ${c.persona.lastName}`;
-  $('chat-sub').textContent = `${c.persona.age} år · ${c.persona.job}${settings.apiKey ? ' · AI-samtal' : ''}`;
-  $('talk-input').placeholder = `Säg något till ${c.persona.firstName}…`;
+  $('chat-sub').textContent = `${t('{age} år', { age: c.persona.age })} · ${c.persona.job}${settings.apiKey ? ` · ${t('AI-samtal')}` : ''}`;
+  $('talk-input').placeholder = t('Säg något till {name}…', { name: c.persona.firstName });
   log.innerHTML = '';
   if (c.transcript?.length) {
     for (const [t, w] of c.transcript) addMsg(t, w);
@@ -750,7 +755,7 @@ function openChat(c) {
   showHeard('');
   c.transcript ||= [];
   if (!c.memory.met) c.wave();
-  const hello = offline.reply(c, 'hej', simWorld);
+  const hello = offline.reply(c, en ? 'hello' : 'hej', simWorld);
   const greet = hello.text;
   if (hello.emotion) c.setExpression(hello.emotion, 3);
   c.greeting = greet;
@@ -861,7 +866,7 @@ async function send(text) {
       console.error(err);
       // Visa API:ts eget felmeddelande (förkortat) så att felet går att förstå
       const detail = err?.status ? ` (${err.status}: ${apiMessage(err).slice(0, 140)})` : '';
-      addMsg(`Kunde inte nå Claude${detail}. Den inbyggda samtalsmotorn svarar i stället.`, 'sys');
+      addMsg(t('Kunde inte nå Claude{detail}. Den inbyggda samtalsmotorn svarar i stället.', { detail }), 'sys');
     }
   }
   if (!result) {
@@ -906,7 +911,11 @@ async function send(text) {
     spoken.then(() => wait(500)).then(() => {
       if (chatWith !== c) return;
       closeChat();
-      toast(`${c.name} följer efter dig. Säg "stanna" för att få ${c.persona.pronoun === 'hon' ? 'henne' : c.persona.pronoun === 'han' ? 'honom' : 'hen'} att sluta.`);
+      toast(
+        en
+          ? `${c.name} is following you. Say "stop" to make ${c.persona.pronoun === 'hon' ? 'her' : c.persona.pronoun === 'han' ? 'him' : 'them'} stop.`
+          : `${c.name} följer efter dig. Säg "stanna" för att få ${c.persona.pronoun === 'hon' ? 'henne' : c.persona.pronoun === 'han' ? 'honom' : 'hen'} att sluta.`,
+      );
     });
   } else {
   }
@@ -921,7 +930,7 @@ function submitText(raw) {
     const { name, c, grade } = feedbackFor;
     feedbackFor = null;
     $('chat-input').placeholder = PLACEHOLDER;
-    $('talk-input').placeholder = chatWith ? `Säg något till ${chatWith.persona.firstName}…` : PLACEHOLDER;
+    $('talk-input').placeholder = chatWith ? t('Säg något till {name}…', { name: chatWith.persona.firstName }) : PLACEHOLDER;
     $('chat-input').value = '';
     $('talk-input').value = '';
     giveFeedback(name, grade || 'down', text, c);
@@ -958,13 +967,13 @@ const micStatus = $('mic-status');
 const mic = { on: false, gen: 0 };
 let micStatusTimer = 0;
 const MIC_TEXT = {
-  starting: '🎙️ Startar mikrofonen…',
-  listening: '🔴 Lyssnar – prata nu',
+  starting: t('🎙️ Startar mikrofonen…'),
+  listening: t('🔴 Lyssnar – prata nu'),
   hearing: '🔴 ',
-  paused: '⏸ Väntar på svaret – lyssnar sedan igen',
-  sent: '✓ Uppfattat: ',
-  silence: '🔴 Hörde inget – prata igen',
-  off: '🎙️ Mikrofonen är av',
+  paused: t('⏸ Väntar på svaret – lyssnar sedan igen'),
+  sent: t('✓ Uppfattat: '),
+  silence: t('🔴 Hörde inget – prata igen'),
+  off: t('🎙️ Mikrofonen är av'),
 };
 
 function micUI(state, text = '') {
@@ -989,7 +998,7 @@ function updateMicButtons() {
 function setMic(on) {
   if (on === mic.on) return;
   if (on && !voice.canListen()) {
-    toast('Röstinmatning stöds inte i den här webbläsaren.');
+    toast(t('Röstinmatning stöds inte i den här webbläsaren.'));
     return;
   }
   mic.on = on;
@@ -1041,12 +1050,12 @@ async function micLoop(gen) {
       if (r.error && r.error !== 'no-speech') {
         if (/not-allowed|denied|permission|service-not-allowed/i.test(r.error)) {
           setMic(false);
-          toast('Appen får inte använda mikrofonen. Tillåt det i telefonens inställningar.');
+          toast(t('Appen får inte använda mikrofonen. Tillåt det i telefonens inställningar.'));
           break;
         }
         if (++failures >= 3) {
           setMic(false);
-          toast(`Mikrofonen fungerar inte just nu (${r.error}). Försök igen om en stund.`);
+          toast(t('Mikrofonen fungerar inte just nu ({error}). Försök igen om en stund.', { error: r.error }));
           break;
         }
       }
@@ -1089,7 +1098,7 @@ for (const b of document.querySelectorAll('.mic-btn')) b.addEventListener('click
 // ---------------- Betyg på rörelser ----------------
 // Ett litet kort med rörelsens namn och 👍/👎: i chattrutan, eller flytande ovanför raden i den kompakta vyn.
 let feedbackFor = null;
-const PROBLEMS = ['Fel position', 'För snabb', 'För långsam', 'För stel', 'Helt fel rörelse'];
+const PROBLEMS = [t('Fel position'), t('För snabb'), t('För långsam'), t('För stel'), t('Helt fel rörelse')];
 const ratePop = $('rate-pop');
 let rateTimer = 0;
 
@@ -1109,31 +1118,31 @@ function addRating(c, name) {
 }
 
 // Snabbval när rörelsen var "nästan" rätt: vad som ska justeras
-const ADJUST = ['Mer', 'Mindre', 'Snabbare', 'Långsammare', 'Håll posen längre'];
+const ADJUST = [t('Mer'), t('Mindre'), t('Snabbare'), t('Långsammare'), t('Håll posen längre')];
 
 function ratingCard(c, name) {
   const card = document.createElement('div');
   card.className = 'rate';
   const label = motionTitle(name);
   const buttons = () => {
-    card.innerHTML = `<span>Hur blev <b></b>?</span><div class="rate-buttons">
-      <button type="button" data-v="up" aria-label="Bra">👍</button>
-      <button type="button" data-v="close" aria-label="Nästan, åt rätt håll">↗️ Nästan</button>
-      <button type="button" data-v="down" aria-label="Dålig">👎</button>
-      <button type="button" data-v="again" aria-label="Gör igen">🔁 Igen</button>
-      <button type="button" data-v="show" aria-label="Visa själv hur den ska se ut">✋ Visa</button></div>`;
+    card.innerHTML = `<span>${t('Hur blev <b></b>?')}</span><div class="rate-buttons">
+      <button type="button" data-v="up" aria-label="${t('Bra')}">👍</button>
+      <button type="button" data-v="close" aria-label="${t('Nästan, åt rätt håll')}">${t('↗️ Nästan')}</button>
+      <button type="button" data-v="down" aria-label="${t('Dålig')}">👎</button>
+      <button type="button" data-v="again" aria-label="${t('Gör igen')}">${t('🔁 Igen')}</button>
+      <button type="button" data-v="show" aria-label="${t('Visa själv hur den ska se ut')}">${t('✋ Visa')}</button></div>`;
     card.querySelector('b').textContent = label;
     card.querySelector('[data-v="up"]').addEventListener('click', () => {
-      done(`👍 Tack! "${label}" blir en förebild för nya rörelser.`);
+      done(t('👍 Tack! "{label}" blir en förebild för nya rörelser.', { label }));
       giveFeedback(name, 'up', null, c);
     });
-    card.querySelector('[data-v="close"]').addEventListener('click', () => ask('close', 'Vad ska justeras?', ADJUST, '↗️'));
-    card.querySelector('[data-v="down"]').addEventListener('click', () => ask('down', 'Vad var fel?', PROBLEMS, '👎'));
+    card.querySelector('[data-v="close"]').addEventListener('click', () => ask('close', t('Vad ska justeras?'), ADJUST, '↗️'));
+    card.querySelector('[data-v="down"]').addEventListener('click', () => ask('down', t('Vad var fel?'), PROBLEMS, '👎'));
     // Gör rörelsen en gång till direkt, utan att fråga AI:n
     card.querySelector('[data-v="again"]').addEventListener('click', () => {
       const def = findMotion(name);
       if (!def || !characters.includes(c)) {
-        toast('Personen är inte kvar i rummet.');
+        toast(t('Personen är inte kvar i rummet.'));
         return;
       }
       c.command({ action: 'rorelse', motion: def, name }, simWorld);
@@ -1141,7 +1150,7 @@ function ratingCard(c, name) {
     });
     // Frys rörelsen och flytta kroppsdelarna själv
     card.querySelector('[data-v="show"]').addEventListener('click', () => {
-      if (openEditor(c, name)) done('✋ Visa hur det ska se ut …');
+      if (openEditor(c, name)) done(t('✋ Visa hur det ska se ut …'));
     });
   };
   const armHide = (ms) => {
@@ -1163,25 +1172,28 @@ function ratingCard(c, name) {
     card.querySelector('span').textContent = question;
     const chips = card.querySelector('.rate-chips');
     // "Inget särskilt" ger bara betyget, utan att säga vad som var fel
-    for (const p of ['Inget särskilt', ...options, 'Annat…', '← Tillbaka']) {
+    const NOTHING = t('Inget särskilt');
+    const OTHER = t('Annat…');
+    const BACK = t('← Tillbaka');
+    for (const p of [NOTHING, ...options, OTHER, BACK]) {
       const b = document.createElement('button');
       b.type = 'button';
       b.textContent = p;
       b.addEventListener('click', () => {
-        if (p === '← Tillbaka') {
+        if (p === BACK) {
           buttons();
           return;
         }
-        if (p === 'Annat…') {
-          done(`${icon} Skriv eller säg vad som ska bli annorlunda.`);
+        if (p === OTHER) {
+          done(`${icon} ${t('Skriv eller säg vad som ska bli annorlunda.')}`);
           feedbackFor = { name, c, grade };
           if (!chatOpen && characters.includes(c)) openChat(c);
-          activeInput().placeholder = `Vad ska ändras i "${label}"?`;
+          activeInput().placeholder = t('Vad ska ändras i "{label}"?', { label });
           activeInput().focus();
           return;
         }
         done(`${icon} ${p}`);
-        giveFeedback(name, grade, p === 'Inget särskilt' ? null : p.toLowerCase(), c);
+        giveFeedback(name, grade, p === NOTHING ? null : p.toLowerCase(), c);
       });
       chips.appendChild(b);
     }
@@ -1210,8 +1222,8 @@ const editor = new PoseEditor({
   onSave: (c, name, def, correction) => {
     recordCorrection(name, correction);
     // Rörelsecoachen drar lärdomar av rättelsen, t.ex. var håret sitter
-    updateLessons(settings, name, 'close', correction.note, correction).then((lessons) => lessons && toast(`Lärdomarna är uppdaterade utifrån din rättelse (${lessons.length} st).`));
-    toast(`Sparat! "${motionTitle(name)}" görs nu som du visade.`);
+    updateLessons(settings, name, 'close', correction.note, correction).then((lessons) => lessons && toast(t('Lärdomarna är uppdaterade utifrån din rättelse ({n} st).', { n: lessons.length })));
+    toast(t('Sparat! "{label}" görs nu som du visade.', { label: motionTitle(name) }));
     if (!characters.includes(c)) return;
     c.command({ action: 'rorelse', motion: def, name }, simWorld);
     setTimeout(() => characters.includes(c) && addRating(c, name), 600);
@@ -1221,7 +1233,7 @@ const editor = new PoseEditor({
 function openEditor(c, name) {
   const def = findMotion(name);
   if (!def || !characters.includes(c) || c.state === 'leaving') {
-    toast('Personen är inte kvar i rummet.');
+    toast(t('Personen är inte kvar i rummet.'));
     return false;
   }
   // Börja vid det ögonblick rörelsen är nu (eller slutposen om den är klar)
@@ -1249,23 +1261,27 @@ function giveFeedback(name, grade, note, c) {
   rateMotion(name, grade, note);
   const label = motionTitle(name);
   // Rörelsecoachen sammanfattar betygen till lärdomar i bakgrunden
-  updateLessons(settings, name, grade, note).then((lessons) => lessons && toast(`Lärdomarna om rörelser är uppdaterade (${lessons.length} st).`));
+  updateLessons(settings, name, grade, note).then((lessons) => lessons && toast(t('Lärdomarna om rörelser är uppdaterade ({n} st).', { n: lessons.length })));
   if (grade === 'up') return;
   if (settings.apiKey && c && characters.includes(c)) {
     // Be personen göra om rörelsen direkt (samtalet öppnas igen om det var stängt)
     const ask =
       grade === 'close'
-        ? `Rörelsen "${label}" var nästan bra och åt rätt håll${note ? ` – ${note}` : ''}. Behåll det som var bra, justera bara det och gör om den.`
-        : `Rörelsen "${label}" blev inte bra${note ? `: ${note}` : ''}. Gör om den bättre.`;
+        ? en
+          ? `The "${label}" move was almost right and going the right way${note ? ` – ${note}` : ''}. Keep what was good, adjust just that, and do it again.`
+          : `Rörelsen "${label}" var nästan bra och åt rätt håll${note ? ` – ${note}` : ''}. Behåll det som var bra, justera bara det och gör om den.`
+        : en
+          ? `The "${label}" move wasn't good${note ? `: ${note}` : ''}. Do it again, better.`
+          : `Rörelsen "${label}" blev inte bra${note ? `: ${note}` : ''}. Gör om den bättre.`;
     if (!chatOpen) openChat(c);
     if (chatWith === c) setTimeout(() => send(ask), chatWith.memory.met ? 300 : 1200);
   } else if (!settings.apiKey) {
-    toast('Tack för betyget! Med AI-samtal påslaget kan personen göra om rörelsen och lära sig av det.');
+    toast(t('Tack för betyget! Med AI-samtal påslaget kan personen göra om rörelsen och lära sig av det.'));
   }
 }
 
 // ---------------- Vilka som syns ----------------
-const SHOW_TEXT = { all: 'Alla får komma in.', f: 'Nu kommer bara kvinnor in.', m: 'Nu kommer bara män in.' };
+const SHOW_TEXT = { all: t('Alla får komma in.'), f: t('Nu kommer bara kvinnor in.'), m: t('Nu kommer bara män in.') };
 
 // Personer som inte passar det nya valet går ut, och nya personer väljs enligt valet
 function applyShowFilter() {
@@ -1282,17 +1298,17 @@ function applyShowFilter() {
     library.model(nextEntry.id).catch(() => {});
   }
   spawnTimer = Math.min(spawnTimer, 4);
-  toast(`${SHOW_TEXT[settings.show]}${leaving ? ' De andra går nu.' : ''}`);
+  toast(`${SHOW_TEXT[settings.show]}${leaving ? ` ${t('De andra går nu.')}` : ''}`);
 }
 
 // ---------------- Toast ----------------
 let toastTimer = 0;
 function toast(text) {
-  const t = $('toast');
-  t.textContent = text;
-  t.classList.add('show');
+  const el = $('toast');
+  el.textContent = text;
+  el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
 }
 
 // ---------------- Start och inställningar ----------------
@@ -1308,21 +1324,31 @@ for (const b of document.querySelectorAll('#mode-pick button')) {
     location.reload();
   });
 }
+// Språkväljare på startskärmen
+for (const b of document.querySelectorAll('#lang-pick button')) {
+  b.classList.toggle('on', b.dataset.lang === lang);
+  b.addEventListener('click', () => {
+    if (b.dataset.lang === lang) return;
+    settings.lang = b.dataset.lang;
+    saveSettings(settings);
+    location.reload();
+  });
+}
 startBtn.disabled = true;
-startBtn.textContent = 'Laddar personer…';
+startBtn.textContent = t('Laddar personer…');
 library
-  .init((p) => (startBtn.textContent = `Laddar personer… ${Math.round(p * 100)} %`))
+  .init((p) => (startBtn.textContent = `${t('Laddar personer…')} ${Math.round(p * 100)} %`))
   .then(async () => {
     await Promise.all(library.initial.map((e) => spawnInside(e)));
     nextEntry = library.pickEntry();
     library.model(nextEntry.id).catch(() => {});
     startBtn.disabled = false;
-    startBtn.textContent = 'Gå in';
-    if (library.avaturnMissing) toast('Du har inga Avaturn-avatarer än. Skapa en under ⚙︎ Inställningar – så länge visas de inbyggda personerna.');
+    startBtn.textContent = t('Gå in');
+    if (library.avaturnMissing) toast(t('Du har inga Avaturn-avatarer än. Skapa en under ⚙︎ Inställningar – så länge visas de inbyggda personerna.'));
   })
   .catch((err) => {
     console.error(err);
-    startBtn.textContent = 'Kunde inte ladda. Försök igen';
+    startBtn.textContent = t('Kunde inte ladda. Försök igen');
     startBtn.disabled = false;
     startBtn.onclick = () => location.reload();
   });
@@ -1343,6 +1369,7 @@ startBtn.addEventListener('click', async () => {
 });
 
 function openSettings() {
+  $('set-lang').value = lang;
   $('set-quality').value = settings.quality || 'auto';
   $('set-show').value = settings.show || 'all';
   $('set-mode').value = settings.mode || 'room';
@@ -1373,7 +1400,7 @@ $('set-cancel').addEventListener('click', () => ($('settings').hidden = true));
 async function fillVoices() {
   const sel = $('set-voice');
   const list = await voice.voices();
-  sel.innerHTML = '<option value="">Automatisk</option>';
+  sel.innerHTML = `<option value="">${t('Automatisk')}</option>`;
   for (const v of list) {
     const o = document.createElement('option');
     o.value = v.id;
@@ -1384,13 +1411,13 @@ async function fillVoices() {
 }
 $('set-rate').addEventListener('input', () => ($('rate-val').textContent = `${Number($('set-rate').value).toFixed(2)}×`));
 $('test-voice').addEventListener('click', () => {
-  voice.speak('Hej! Så här låter jag när jag pratar med dig.', { rate: Number($('set-rate').value), voiceId: $('set-voice').value });
+  voice.speak(t('Hej! Så här låter jag när jag pratar med dig.'), { rate: Number($('set-rate').value), voiceId: $('set-voice').value });
 });
 
 // Vad personerna har lärt sig, i inställningarna
 function fillLearning() {
   const n = learnedCount();
-  $('learn-summary').textContent = `Inlärda rörelser: ${n.motions} · betygsatta: ${n.rated} · lärdomar: ${n.lessons}`;
+  $('learn-summary').textContent = t('Inlärda rörelser: {motions} · betygsatta: {rated} · lärdomar: {lessons}', n);
   const ul = $('learn-lessons');
   ul.innerHTML = '';
   for (const l of motionLessons()) {
@@ -1398,19 +1425,21 @@ function fillLearning() {
     li.textContent = l;
     ul.appendChild(li);
   }
-  if (!ul.children.length) ul.innerHTML = '<li>Inga lärdomar ännu. Betygsätt rörelser i chatten så samlas de här.</li>';
+  if (!ul.children.length) ul.innerHTML = `<li>${t('Inga lärdomar ännu. Betygsätt rörelser i chatten så samlas de här.')}</li>`;
 }
 $('learn-reset').addEventListener('click', () => {
-  if (!confirm('Glömma alla inlärda rörelser, betyg och lärdomar?')) return;
+  if (!confirm(t('Glömma alla inlärda rörelser, betyg och lärdomar?'))) return;
   resetLearning();
   fillLearning();
-  toast('Allt inlärt om rörelser är borttaget.');
+  toast(t('Allt inlärt om rörelser är borttaget.'));
 });
 $('set-save').addEventListener('click', async () => {
   const prevShow = settings.show;
   const prevMode = settings.mode;
   const prevPeople = settings.people || 'rocketbox';
   settings = {
+    ...settings,
+    lang: $('set-lang').value,
     mode: $('set-mode').value,
     people: $('set-people').value,
     quality: $('set-quality').value,
@@ -1429,7 +1458,7 @@ $('set-save').addEventListener('click', async () => {
   // Läget avgör vilka modeller som laddas, så appen startas om
   // Avaturn var valt men saknade avatarer: nu finns det några
   const newAvatars = settings.people === 'avaturn' && library.avaturnMissing && (await listAvatars()).length > 0;
-  if (settings.mode !== prevMode || settings.people !== prevPeople || newAvatars) {
+  if (settings.mode !== prevMode || settings.people !== prevPeople || newAvatars || settings.lang !== lang) {
     location.reload();
     return;
   }
@@ -1440,7 +1469,7 @@ $('set-save').addEventListener('click', async () => {
   }
   $('settings').hidden = true;
   if (settings.show !== prevShow) applyShowFilter();
-  else toast(settings.apiKey ? 'AI-samtal är på.' : 'Inbyggd samtalsmotor används.');
+  else toast(settings.apiKey ? t('AI-samtal är på.') : t('Inbyggd samtalsmotor används.'));
 });
 
 // ---------------- Egna avatarer från Avaturn ----------------
@@ -1449,17 +1478,17 @@ async function fillAvaturn() {
   const ul = $('avaturn-list');
   const list = await listAvatars();
   ul.innerHTML = '';
-  if (!list.length) ul.innerHTML = '<li class="note">Inga avatarer ännu.</li>';
+  if (!list.length) ul.innerHTML = `<li class="note">${t('Inga avatarer ännu.')}</li>`;
   for (const a of list) {
     const li = document.createElement('li');
-    li.innerHTML = `<input type="text" maxlength="30" aria-label="Namn" /><select aria-label="Kön"><option value="f">Kvinna</option><option value="m">Man</option></select><button type="button" aria-label="Ta bort">🗑</button>`;
+    li.innerHTML = `<input type="text" maxlength="30" aria-label="${t('Namn')}" /><select aria-label="${t('Kön')}"><option value="f">${t('Kvinna')}</option><option value="m">${t('Man')}</option></select><button type="button" aria-label="${t('Ta bort')}">🗑</button>`;
     const [name, gender, del] = li.children;
     name.value = a.name;
     gender.value = a.gender;
     name.addEventListener('change', () => updateAvatar(a.id, { name: name.value.trim() || a.name }));
     gender.addEventListener('change', () => updateAvatar(a.id, { gender: gender.value }));
     del.addEventListener('click', async () => {
-      if (!confirm(`Ta bort ${a.name}?`)) return;
+      if (!confirm(t('Ta bort {name}?', { name: a.name }))) return;
       await deleteAvatar(a.id);
       fillAvaturn();
     });
@@ -1470,7 +1499,7 @@ $('set-people').addEventListener('change', fillAvaturn);
 
 async function addAvatar(blob, gender) {
   if (!(await isGlb(blob))) {
-    toast('Filen är ingen GLB-modell.');
+    toast(t('Filen är ingen GLB-modell.'));
     return;
   }
   const count = (await listAvatars()).length;
@@ -1481,8 +1510,8 @@ async function addAvatar(blob, gender) {
   // Är Avaturn redan valt kan avataren komma in i rummet direkt
   if (library.avaturn) {
     library.list.push({ id, gender, name, avaturn: true });
-    toast('Avataren är sparad och kommer snart in i rummet.');
-  } else toast('Avataren är sparad. Tryck på Spara för att använda Avaturn-avatarer.');
+    toast(t('Avataren är sparad och kommer snart in i rummet.'));
+  } else toast(t('Avataren är sparad. Tryck på Spara för att använda Avaturn-avatarer.'));
 }
 
 $('avaturn-file').addEventListener('change', async (e) => {
@@ -1503,7 +1532,7 @@ $('avaturn-create').addEventListener('click', async () => {
   } catch (err) {
     console.error(err);
     overlay.hidden = true;
-    toast('Kunde inte öppna eller spara från Avaturn. Du kan i stället ladda upp en GLB-fil från avaturn.me.');
+    toast(t('Kunde inte öppna eller spara från Avaturn. Du kan i stället ladda upp en GLB-fil från avaturn.me.'));
   }
 });
 $('avaturn-close').addEventListener('click', () => $('avaturn-host').closeAvaturn?.());
@@ -1514,7 +1543,7 @@ const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standa
 // ---------------- Uppdateringar ----------------
 // Varje publicering ger en ny service worker. När den har laddats ner visas en banner, och
 // först när man trycker på "Uppdatera" tar den nya versionen över och sidan laddas om.
-$('app-version').textContent = `Version ${__APP_VERSION__}`;
+$('app-version').textContent = `${t('Version')} ${__APP_VERSION__}`;
 let swReg = null;
 let waitingWorker = null;
 let updateRequested = false;
@@ -1554,7 +1583,7 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 }
 
 $('update-btn').addEventListener('click', () => {
-  $('update-btn').textContent = 'Uppdaterar…';
+  $('update-btn').textContent = t('Uppdaterar…');
   updateRequested = true;
   if (waitingWorker) waitingWorker.postMessage('SKIP_WAITING');
   else location.reload();
@@ -1563,29 +1592,29 @@ $('update-btn').addEventListener('click', () => {
 $('check-update').addEventListener('click', async () => {
   const btn = $('check-update');
   if (await checkApkUpdate()) {
-    toast('En ny version av Android-appen finns.');
+    toast(t('En ny version av Android-appen finns.'));
     return;
   }
   if (!swReg) {
-    toast('Uppdateringar fungerar i den installerade appen.');
+    toast(t('Uppdateringar fungerar i den installerade appen.'));
     return;
   }
   btn.disabled = true;
-  btn.textContent = 'Söker…';
+  btn.textContent = t('Söker…');
   try {
     await swReg.update();
     if (swReg.waiting) {
       showUpdate(swReg.waiting);
     } else if (swReg.installing) {
-      toast('En ny version laddas ner…');
+      toast(t('En ny version laddas ner…'));
     } else {
-      toast('Du har den senaste versionen.');
+      toast(t('Du har den senaste versionen.'));
     }
   } catch {
-    toast('Kunde inte söka efter uppdateringar. Är du ansluten till internet?');
+    toast(t('Kunde inte söka efter uppdateringar. Är du ansluten till internet?'));
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Sök efter uppdatering';
+    btn.textContent = t('Sök efter uppdatering');
   }
 });
 let installPrompt = null;
@@ -1669,7 +1698,7 @@ function frame(now) {
       if (focused === c) focused = null;
     } else if (c.state === 'leaving' && !c.announced && c.position.x < ROOM.minX + 0.2) {
       c.announced = true;
-      toast(`${c.name} gick.`);
+      toast(t('{name} gick.', { name: c.name }));
     }
   }
 

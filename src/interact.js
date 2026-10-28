@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { angleDiff } from './characters.js';
 import { PLACES } from './commands.js';
+import { en } from './i18n.js';
 
 // Personer som gör saker tillsammans: kramas, gör high five, skakar hand, dansar, pratar med varandra
 // eller sätter sig bredvid varandra. Den som spelaren ber går fram till den andra, de vänder sig mot
@@ -47,13 +48,21 @@ export const INTERACTIONS = {
 };
 
 // Repliker när spelaren inte har AI-samtal påslaget
-const SMALL_TALK = [
-  ['Hej! Hur är läget?', 'Bara bra, och du?'],
-  ['Visst är det mysigt här?', 'Verkligen. Fin lampa förresten.'],
-  ['Har du sett något bra på tv på sistone?', 'Inte direkt. Tips?'],
-  ['Vilket väder alltså.', 'Ja, man vet aldrig vad man ska ta på sig.'],
-  ['Känner du personen som bor här?', 'Lite grann. Själv då?'],
-];
+const SMALL_TALK = en
+  ? [
+      ['Hi! How’s it going?', 'Good, and you?'],
+      ['Cosy in here, isn’t it?', 'Definitely. Nice lamp, by the way.'],
+      ['Seen anything good on TV lately?', 'Not really. Any tips?'],
+      ['What weather, eh?', 'I know, you never know what to wear.'],
+      ['Do you know the person who lives here?', 'A little. Do you?'],
+    ]
+  : [
+      ['Hej! Hur är läget?', 'Bara bra, och du?'],
+      ['Visst är det mysigt här?', 'Verkligen. Fin lampa förresten.'],
+      ['Har du sett något bra på tv på sistone?', 'Inte direkt. Tips?'],
+      ['Vilket väder alltså.', 'Ja, man vet aldrig vad man ska ta på sig.'],
+      ['Känner du personen som bor här?', 'Lite grann. Själv då?'],
+    ];
 
 export class Interactions {
   constructor({ camera }) {

@@ -13,6 +13,7 @@ import { makeSkinMaterial, sampleSkinTone, skinParams } from './skin.js';
 import { cutEyes, buildEye } from './eyes.js';
 import { makeHairMaterial } from './hair.js';
 import { loadScanHead } from './scanhead.js';
+import { t, locale, translateDom } from '../i18n.js';
 
 // Huvudstudion: ett separat testläge med en egen renderare för så realistiska huvuden som möjligt.
 // Inget rum, bara ett huvud i ett fotostudioljus. Allt som förbättrar huvudet kan slås av och på
@@ -183,7 +184,7 @@ function meshesOf(c) {
 let scan = null;
 let scanLoading = null;
 async function newScanPerson() {
-  status('Skapar en ny person…');
+  status(t('Skapar en ny person…'));
   await new Promise((r) => setTimeout(r, 30));
   if (!scan) {
     scanLoading ||= loadScanHead();
@@ -209,7 +210,7 @@ function showModel() {
 }
 
 async function loadPerson(entry) {
-  status('Laddar person…');
+  status(t('Laddar person…'));
   const asset = await library.create(entry);
   const c = new Character(Date.now() % 1000, asset);
   if (!c.bones.eyes.length) {
@@ -246,7 +247,7 @@ async function loadPerson(entry) {
 async function applyOptions() {
   const c = person;
   if (!c || opts.model === 'scan') return;
-  status('Räknar fram huvudet…');
+  status(t('Räknar fram huvudet…'));
   await new Promise((r) => setTimeout(r, 30));
   // Ta bort tidigare ögon
   for (const b of c.bones.eyes) for (const ch of [...b.children]) if (ch.name === 'studio-eye') b.remove(ch);
@@ -380,13 +381,14 @@ function buildUi() {
     </div>
     <div class="studio-update" id="studio-update" hidden><span>En ny version finns.</span><button type="button" id="studio-update-btn">Uppdatera</button></div>`;
   document.body.appendChild(ui);
+  translateDom(ui);
   document.body.classList.add('studio-mode');
 
   $('studio-back').onclick = () => {
     saveSettings({ ...loadSettings(), mode: 'head' });
     location.reload();
   };
-  $('studio-next').onclick = () => (opts.model === 'scan' ? newScanPerson() : loadPerson(library.pickEntry())).catch((e) => status(`Kunde inte ladda: ${e.message}`));
+  $('studio-next').onclick = () => (opts.model === 'scan' ? newScanPerson() : loadPerson(library.pickEntry())).catch((e) => status(t('Kunde inte ladda: {error}', { error: e.message })));
   $('st-model').value = opts.model;
   const gameOnly = ['st-level', 'st-eyes', 'st-hair', 'st-compare'].map((id) => $(id).closest('label') || $(id));
   const showGameOnly = () => gameOnly.forEach((el) => (el.hidden = opts.model === 'scan'));
@@ -396,7 +398,7 @@ function buildUi() {
     saveSettings({ ...loadSettings(), studioModel: opts.model });
     showGameOnly();
     cam.ready = false;
-    showModel().catch((err) => status(`Kunde inte ladda: ${err.message}`));
+    showModel().catch((err) => status(t('Kunde inte ladda: {error}', { error: err.message })));
   };
   $('studio-panel-btn').onclick = () => ($('studio-panel').hidden = !$('studio-panel').hidden);
   $('st-level').value = String(opts.level);
@@ -473,7 +475,7 @@ function buildUi() {
   }
   $('studio-say').onsubmit = (e) => {
     e.preventDefault();
-    const text = $('studio-text').value.trim() || 'Hej! Jag heter Saga. Visst ser jag verklig ut? Titta på mina ögon.';
+    const text = $('studio-text').value.trim() || t('Hej! Jag heter Saga. Visst ser jag verklig ut? Titta på mina ögon.');
     $('studio-text').value = '';
     say(text);
   };
@@ -526,7 +528,7 @@ function updateInfo() {
   let tris = 0;
   if (opts.model === 'scan' && scan) tris = scan.geometry.index.count / 3;
   else if (person) for (const m of meshesOf(person)) tris += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
-  el.textContent = `${Math.round(tris).toLocaleString('sv-SE')} trianglar · upplösning ${dpr.toFixed(2)}× · ${fps.toFixed(0)} bilder/s`;
+  el.textContent = t('{tris} trianglar · upplösning {dpr}× · {fps} bilder/s', { tris: Math.round(tris).toLocaleString(locale), dpr: dpr.toFixed(2), fps: fps.toFixed(0) });
 }
 
 // ---------------- Uppdateringar (samma service worker som spelet) ----------------
@@ -605,14 +607,14 @@ async function start() {
   library.dir = 'avatars-hq';
   library.initialCount = 1;
   library.avaturn = settings.people === 'avaturn';
-  status('Laddar…');
+  status(t('Laddar…'));
   await library.init();
   await showModel();
   requestAnimationFrame(loop);
 }
 start().catch((err) => {
   console.error(err);
-  status(`Kunde inte starta studion: ${err.message}`);
+  status(t('Kunde inte starta studion: {error}', { error: err.message }));
 });
 
 window.__studio = { scene, camera, renderer, opts, applyOptions, cam, renderOnce, pause: (p = true) => (paused = p), get person() { return person; }, get scan() { return scan; }, newScanPerson, say, loadPerson, library };

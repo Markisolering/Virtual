@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { t } from './i18n.js';
 import { prepareMotion, sampleMotion, saveMotion, motionTitle } from './motion.js';
 
 // Redigeraren: spelaren fryser en rörelse, drar personens händer, fötter, huvud eller bröst dit de ska,
@@ -10,12 +11,12 @@ import { prepareMotion, sampleMotion, saveMotion, motionTitle } from './motion.j
 
 // Handtag: vilken punkt som dras och vilka vinklar som får ändras för att nå dit
 const HANDLES = [
-  { id: 'h_hand', label: 'Höger hand', params: ['h_arm_framat', 'h_arm_utat', 'h_arm_vrid', 'h_armbage'] },
-  { id: 'v_hand', label: 'Vänster hand', params: ['v_arm_framat', 'v_arm_utat', 'v_arm_vrid', 'v_armbage'] },
-  { id: 'h_fot', label: 'Höger fot', params: ['h_ben_framat', 'h_ben_utat', 'h_kna'] },
-  { id: 'v_fot', label: 'Vänster fot', params: ['v_ben_framat', 'v_ben_utat', 'v_kna'] },
-  { id: 'huvud', label: 'Huvud', params: ['huvud_nick', 'huvud_vrid'] },
-  { id: 'brost', label: 'Bröst', params: ['overkropp_framat', 'overkropp_luta'] },
+  { id: 'h_hand', label: t('Höger hand'), params: ['h_arm_framat', 'h_arm_utat', 'h_arm_vrid', 'h_armbage'] },
+  { id: 'v_hand', label: t('Vänster hand'), params: ['v_arm_framat', 'v_arm_utat', 'v_arm_vrid', 'v_armbage'] },
+  { id: 'h_fot', label: t('Höger fot'), params: ['h_ben_framat', 'h_ben_utat', 'h_kna'] },
+  { id: 'v_fot', label: t('Vänster fot'), params: ['v_ben_framat', 'v_ben_utat', 'v_kna'] },
+  { id: 'huvud', label: t('Huvud'), params: ['huvud_nick', 'huvud_vrid'] },
+  { id: 'brost', label: t('Bröst'), params: ['overkropp_framat', 'overkropp_luta'] },
 ];
 
 // Rimliga gränser så att lederna inte vrids åt omöjliga håll
@@ -72,7 +73,7 @@ export class PoseEditor {
     this.orbit = { yaw: c.heading + 0.45, pitch: 0.1, dist: 1.55 };
     this.center = this.focusPoint().clone();
     this.active = true;
-    this.ui.title.textContent = `Visa hur "${motionTitle(name)}" ska se ut`;
+    this.ui.title.textContent = t('Visa hur "{label}" ska se ut', { label: motionTitle(name) });
     this.ui.slider.max = String(this.duration);
     this.ui.slider.value = String(this.time);
     this.ui.slider.disabled = this.duration < 0.1;
@@ -98,7 +99,7 @@ export class PoseEditor {
     this.ui.handles.hidden = n !== 1;
     if (n === 2) {
       this.ui.note.value = '';
-      this.ui.changes.textContent = this.describeChanges() || 'Inga ändringar ännu.';
+      this.ui.changes.textContent = this.describeChanges() || t('Inga ändringar ännu.');
     }
   }
 
